@@ -1,0 +1,41 @@
+{
+  "name": "@local/dsh-status-pet",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit",
+    "pretest": "tsdown",
+    "test": "node --test 'test/*.test.ts'",
+    "bench": "node bench/store.mjs"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "meta": {
+    "title": "Status Pet",
+    "description": "A tiny pixel-art whale maid — DeepSeek's mascot whale in a maid headdress — in the composer dock that reflects what your agent is doing: sleeping, thinking, running tools, or waiting for your approval. Click to make her jump."
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "tsdown": "^0.23.0",
+    "typescript": "^7.0.2"
+  }
+}
