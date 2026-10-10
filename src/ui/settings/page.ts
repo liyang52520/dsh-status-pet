@@ -55,8 +55,16 @@ import { STATE_NAMES } from '../../pet/behavior.ts';
 import { CSS } from '../styles.ts';
 import { translatorOrFallback } from '../../pet/labels.ts';
 import type { Translator } from '../../pet/labels.ts';
-import { activeSkin, onSkinChange, skinLibrary } from '../../pet/skins/store.ts';
-import type { LibraryEntryInfo } from '../../pet/skins/store.ts';
+import {
+  activeSkin,
+  loadCustomArtwork,
+  onSkinChange,
+  removeLibraryTakes,
+  removalIsBlocked,
+  saveStored,
+  skinLibrary,
+} from '../../pet/skins/store.ts';
+import type { CustomArtwork, LibraryEntryInfo } from '../../pet/skins/store.ts';
 import { AVATAR_GRID, BODY_GRID, LIVE_ZOOM } from '../../pet/grids.ts';
 import { PetPreview } from '../pet-preview.ts';
 import { SkinPicker } from './skin-picker.ts';
@@ -101,6 +109,28 @@ export function SettingsPage(props: { t?: Translator } | null) {
   const [editState, setEditState] = React.useState<string>('idle');
   const [editAction, setEditAction] = React.useState<string | null>(null);
   const [shown, setShown] = React.useState(ACTION_PAGE);
+  // Each preview gallery carries its own SEARCH — 按状态 finds a state, 按动作
+  // finds an action — because both views are material you scan, and the library
+  // is 106 entries.
+  const [stateQuery, setStateQuery] = React.useState('');
+  const [actionQuery, setActionQuery] = React.useState('');
+  // ── 预览 · 按动作's selection mode: THE place several actions are removed ──
+  // 预览 is the MATERIAL view — it already lists every action as a live tile —
+  // so "take several of these out of the library" belongs here, next to the
+  // tiles themselves.  编辑 · 按动作 is the studio for ONE action; a checkbox
+  // list in there mixed the two jobs back together.
+  //
+  // A removal is destructive and this page has no history stack, so it takes a
+  // CONFIRM step rather than an undo: the dialog names the count, and nothing
+  // is written until 删除.
+  const [picking, setPicking] = React.useState(false);
+  const [picked, setPicked] = React.useState<string[]>([]);
+  const [confirming, setConfirming] = React.useState(false);
+  const [pickNote, setPickNote] = React.useState('');
+  // Our own write does not change the skin NAME, so the picker's subscription
+  // will not re-render this page by itself: this is the revision that makes the
+  // library list (and every tile in it) re-read the document we just stored.
+  const [rev, setRev] = React.useState(0);
   // BOTH skins get the 编辑 tab: a built-in's state ASSIGNMENTS are editable,
   // only its pixels are not (see the header).  That is why 按动作 — the studio —
   // is the part that disappears, not the whole tab.
@@ -110,9 +140,55 @@ export function SettingsPage(props: { t?: Translator } | null) {
   // 按状态 is the one mode every skin has; 按动作 needs an editable artwork.
   const editViews: ReadonlyArray<readonly [string, string]> = isCustom ? VIEWS : [VIEWS[0]];
   const editMode: View = isCustom ? editView : 'states';
+  void rev; // read through `library` below — the state exists to force the re-read
   const library: LibraryEntryInfo[] = skinLibrary(skin, crop);
   const unused = library.filter((a) => !a.usedBy.length).length;
   const ids = library.map((a) => a.id);
+  // The ticks that still name a live action, and the artwork they are ticked
+  // against.  A built-in's library is frozen, so selection mode is 我的创作's.
+  const pickedLive = picked.filter((id) => ids.includes(id));
+  const pickArt = isCustom ? loadCustomArtwork() : null;
+  const pickBlocked = pickArt ? removalIsBlocked(pickArt, crop, pickedLive) : false;
+  const actionLabel = (a: LibraryEntryInfo) => a.name || t('settings.actionN', { n: ids.indexOf(a.id) + 1 });
+  const actionQueryNorm = actionQuery.trim().toLowerCase();
+  const actionMatches = (a: LibraryEntryInfo) => !actionQueryNorm
+    || (actionLabel(a) + ' ' + (a.origin || '') + ' ' + a.id).toLowerCase().includes(actionQueryNorm);
+  // What 按动作 shows — and therefore what 全选 takes and what the removal
+  // removes from view.  An empty box matches the whole library.
+  const actionList = library.filter(actionMatches);
+  // 按状态's search answers "where is the state that…": a state's own name, what
+  // it MEANS, and the names of the actions it plays.
+  const stateQueryNorm = stateQuery.trim().toLowerCase();
+  const stateMatches = (name: string) => {
+    if (!stateQueryNorm) return true;
+    const played = library.filter((a) => a.usedBy.includes(name)).map((a) => a.name || '');
+    return (t(name) + ' ' + t('settings.hint.' + name) + ' ' + played.join(' '))
+      .toLowerCase().includes(stateQueryNorm);
+  };
+  const stateList = STATE_NAMES.filter(stateMatches);
+
+  // ── the selection mode's moves ──
+  function togglePick(id: string) {
+    setPicked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : prev.concat([id])));
+  }
+  /** 全选 ticks every action the search MATCHES — the whole library when the box
+   *  is empty, not just the page of tiles on screen. */
+  function pickAll(matching: string[]) {
+    const add = new Set(matching);
+    setPicked(library.filter((a) => add.has(a.id) || pickedLive.includes(a.id)).map((a) => a.id));
+  }
+  /** The removal itself — reached only through the confirm dialog. */
+  function deletePicked() {
+    const art = loadCustomArtwork();
+    if (!art || !pickedLive.length || removalIsBlocked(art, crop, pickedLive)) return;
+    const next = removeLibraryTakes(art, crop, pickedLive);
+    if (next === art) return;
+    saveStored({ skin: 'custom', custom: next });
+    setPicked([]);
+    setConfirming(false);
+    setPickNote(t('settings.actionsRemoved', { n: pickedLive.length }));
+    setRev((r) => r + 1);
+  }
 
   // The corner ✎: open 编辑 on the same thing the cell was showing.
   function editActionFrom(id: string) {
@@ -203,12 +279,28 @@ export function SettingsPage(props: { t?: Translator } | null) {
           'aria-label': t('settings.tab.preview'),
         },
           viewBar(VIEWS, previewView, setPreviewView,
-            // The library's dead weight, said out loud: an action nothing plays
-            // is invisible in 按状态, and silently accumulating art is worse
-            // than a number.
-            unused
-              ? h('span', { className: 'status-pet-hint' }, t('settings.unusedCount', { n: unused }))
-              : null),
+            // The gallery bar's right side: the library's dead weight said out
+            // loud, and — in 按动作, on 我的创作 — the way into selection mode.
+            // (It stays in 按动作: it selects ACTIONS, and 按状态 has none to
+            // select.)
+            h('div', { className: 'status-pet-colors' },
+              unused
+                ? h('span', { className: 'status-pet-hint' }, t('settings.unusedCount', { n: unused }))
+                : null,
+              isCustom && previewView === 'actions'
+                ? h('button', {
+                    type: 'button',
+                    className: 'status-pet-mini-button' + (picking ? ' active' : ''),
+                    'aria-label': t('settings.manageActions'),
+                    'aria-pressed': picking ? 'true' : 'false',
+                    title: t('settings.bulkHint'),
+                    onClick: () => {
+                      setPicking(!picking);
+                      setPicked([]);
+                      setPickNote('');
+                    },
+                  }, t('settings.manageActions'))
+                : null)),
           // Plain render helpers, not components: they hold no state, and
           // keeping their output in this tree is what lets a test (and the
           // reader) see the gallery as one page.  The corner ✎ is handed in
@@ -216,90 +308,242 @@ export function SettingsPage(props: { t?: Translator } | null) {
           previewView === 'states'
             // A state's assignment is editable on EVERY skin, so every state
             // cell offers the jump.
-            ? stateGallery({ t, crop, library, onEdit: editStateFrom })
+            ? stateGallery({ t, crop, library, states: stateList,
+                query: stateQuery,
+                onQuery: setStateQuery,
+                onEdit: editStateFrom })
             // An action's pixels are not, on a built-in.
-            : actionGallery({ t, crop, library, ids, shown,
+            : actionGallery({ t, crop, library: actionList, ids, total: library.length,
+                shown,
+                query: actionQuery,
+                onQuery: (v: string) => { setActionQuery(v); setShown(ACTION_PAGE); },
                 onMore: () => setShown(shown + ACTION_PAGE),
-                onEdit: isCustom ? editActionFrom : null })
-        )
+                onEdit: isCustom && !picking ? editActionFrom : null,
+                picking,
+                picked: pickedLive,
+                onToggle: togglePick,
+                onAll: () => pickAll(actionList.map((a) => a.id)),
+                onNone: () => setPicked([]),
+                // The button is disabled when blocked; the handler refuses too,
+                // so the dialog can never open on a removal that is invalid.
+                onDelete: () => { if (pickedLive.length && !pickBlocked) setConfirming(true); },
+                blocked: pickBlocked,
+                note: pickNote })
+        ),
+    // The removal is not undoable, so it is CONFIRMED: a small overlay naming
+    // exactly how many actions leave the library.
+    confirming
+      ? h('div', { className: 'status-pet-confirm', role: 'dialog', 'aria-modal': 'true',
+          'aria-label': t('settings.confirmDeleteTitle', { n: pickedLive.length }) },
+          h('div', { className: 'status-pet-confirm-card' },
+            h('div', { className: 'status-pet-confirm-title' },
+              t('settings.confirmDeleteTitle', { n: pickedLive.length })),
+            h('div', { className: 'status-pet-hint' }, t('settings.confirmDeleteHint')),
+            h('div', { className: 'status-pet-bulk-ops' },
+              h('button', {
+                type: 'button', className: 'status-pet-mini-button',
+                onClick: () => setConfirming(false),
+              }, t('settings.cancel')),
+              h('button', {
+                type: 'button', className: 'status-pet-mini-button status-pet-danger',
+                onClick: deletePicked,
+              }, t('settings.confirmDelete')))))
+      : null
   );
 }
 
-/** 按状态: one cell per state, LIVE, with its assignment as a badge. */
+/** 按状态: one cell per state, LIVE, with its assignment as a badge.
+ *
+ *  The search finds a STATE: by its name, by what it MEANS (the same hint the
+ *  tooltip shows), or by the name of an action it plays — so "which states play
+ *  吃年糕?" is a query, not a hunt. */
 function stateGallery(props: {
   t: (k: string, p?: Record<string, unknown>) => string;
   crop: number;
   library: LibraryEntryInfo[];
+  states: string[];
+  query?: string;
+  onQuery?: (v: string) => void;
   onEdit: ((state: string) => void) | null;
 }) {
   const t = props.t;
-  return h('div', { className: 'status-pet-gallery' },
-    STATE_NAMES.map((name) => {
-      // The badge counts the actions this state plays, from the SAME library
-      // list 按动作 shows — so the two views can never disagree about what is
-      // assigned.  Zero means "follows idle", and it is the one thing that
-      // cannot be seen anywhere else.
-      const plays = props.library.filter((a) => a.usedBy.includes(name)).length;
-      return h('div', { className: 'status-pet-gallery-cell', key: name, title: t('settings.hint.' + name) },
-        props.onEdit
-          ? h('button', {
-              type: 'button',
-              className: 'status-pet-gallery-edit',
-              'aria-label': t(name) + ' — ' + t('settings.editState'),
-              title: t('settings.editState'),
-              onClick: () => props.onEdit!(name),
-            }, '✎')
-          : null,
-        h(PetPreview, { state: name, crop: props.crop, zoom: LIVE_ZOOM, interactive: false }),
-        h('div', { className: 'status-pet-gallery-label' }, t(name)),
-        h('div', { className: 'status-pet-gallery-meta' + (plays ? '' : ' idle-fallback') },
-          plays ? t('settings.actionCount', { n: plays }) : t('settings.followIdle'))
-      );
-    })
-  );
-}
-
-/** 按动作: one cell per library action — the whole catalog, live. */
-function actionGallery(props: {
-  t: (k: string, p?: Record<string, unknown>) => string;
-  crop: number;
-  library: LibraryEntryInfo[];
-  ids: string[];
-  shown: number;
-  onMore: () => void;
-  onEdit: ((id: string) => void) | null;
-}) {
-  const t = props.t;
-  const visible = props.library.slice(0, props.shown);
+  const query = props.query || '';
   return h('div', null,
+    h('div', { className: 'status-pet-search-row status-pet-gallery-search' },
+      h('input', {
+        type: 'search',
+        className: 'status-pet-import-search',
+        value: query,
+        placeholder: t('settings.searchStates'),
+        'aria-label': t('settings.searchStates'),
+        onChange: (e: { target: { value: string } }) => props.onQuery!(e.target.value),
+      }),
+      query
+        ? h('span', { className: 'status-pet-hint' },
+            t('settings.searchMatches', { n: props.states.length, total: STATE_NAMES.length }))
+        : null
+    ),
     h('div', { className: 'status-pet-gallery' },
-      visible.map((a) => {
-        const label = a.name || t('settings.actionN', { n: props.ids.indexOf(a.id) + 1 });
-        return h('div', {
-          className: 'status-pet-gallery-cell',
-          key: a.id,
-          title: label + (a.origin ? ' · ' + a.origin : ''),
-        },
+      props.states.map((name) => {
+        // The badge counts the actions this state plays, from the SAME library
+        // list 按动作 shows — so the two views can never disagree about what is
+        // assigned.  Zero means "follows idle", and it is the one thing that
+        // cannot be seen anywhere else.
+        const plays = props.library.filter((a) => a.usedBy.includes(name)).length;
+        return h('div', { className: 'status-pet-gallery-cell', key: name, title: t('settings.hint.' + name) },
           props.onEdit
             ? h('button', {
                 type: 'button',
                 className: 'status-pet-gallery-edit',
-                'aria-label': label + ' — ' + t('settings.editAction'),
-                title: t('settings.editAction'),
-                onClick: () => props.onEdit!(a.id),
+                'aria-label': t(name) + ' — ' + t('settings.editState'),
+                title: t('settings.editState'),
+                onClick: () => props.onEdit!(name),
               }, '✎')
             : null,
-          h(PetPreview, { takeId: a.id, crop: props.crop, zoom: LIVE_ZOOM, interactive: false }),
-          h('div', { className: 'status-pet-gallery-text' },
-            h('div', { className: 'status-pet-gallery-label' }, label),
-            h('div', { className: 'status-pet-gallery-meta' },
-              a.usedBy.length
-                ? t('settings.usedByN', { n: a.usedBy.length })
-                : t('settings.unusedAction')))
+          h(PetPreview, { state: name, crop: props.crop, zoom: LIVE_ZOOM, interactive: false }),
+          h('div', { className: 'status-pet-gallery-label' }, t(name)),
+          h('div', { className: 'status-pet-gallery-meta' + (plays ? '' : ' idle-fallback') },
+            plays ? t('settings.actionCount', { n: plays }) : t('settings.followIdle'))
         );
       })
     ),
-    props.shown < props.library.length
+    props.states.length === 0
+      ? h('div', { className: 'status-pet-hint' },
+          query ? t('settings.searchEmpty', { q: query.trim() }) : null)
+      : null
+  );
+}
+
+/** 按动作: one cell per library action — the whole catalog, live.
+ *
+ *  In SELECTION mode (我的创作 only, see `picking` on the page) a cell stops
+ *  being a peephole and becomes a checkbox: the same tiles, but ticking several
+ *  of them is what 删除选中 removes in ONE write.  The filter scopes 全选, the
+ *  guards disable the delete before the click, and 撤销 hands back the snapshot
+ *  the removal replaced — this page has no history stack. */
+function actionGallery(props: {
+  t: (k: string, p?: Record<string, unknown>) => string;
+  crop: number;
+  /** The actions MATCHING the search — the page owns the filter, so 全选 and
+   *  the grid can never disagree about what is in front of you. */
+  library: LibraryEntryInfo[];
+  ids: string[];
+  /** The unfiltered library size, for the "N of M" read-out. */
+  total: number;
+  shown: number;
+  query?: string;
+  onQuery?: (v: string) => void;
+  onMore: () => void;
+  onEdit: ((id: string) => void) | null;
+  picking?: boolean;
+  picked?: string[];
+  onToggle?: (id: string) => void;
+  onAll?: () => void;
+  onNone?: () => void;
+  onDelete?: () => void;
+  blocked?: boolean;
+  note?: string;
+}) {
+  const t = props.t;
+  const picked = props.picked || [];
+  const query = props.query || '';
+  const visible = props.library.slice(0, props.shown);
+  const cell = (a: LibraryEntryInfo) => {
+    const label = a.name || t('settings.actionN', { n: props.ids.indexOf(a.id) + 1 });
+    const title = label + (a.origin ? ' · ' + a.origin : '');
+    const painted = h(PetPreview, { takeId: a.id, crop: props.crop, zoom: LIVE_ZOOM, interactive: false });
+    const text = h('div', { className: 'status-pet-gallery-text' },
+      h('div', { className: 'status-pet-gallery-label' }, label),
+      h('div', { className: 'status-pet-gallery-meta' },
+        a.usedBy.length
+          ? t('settings.usedByN', { n: a.usedBy.length })
+          : t('settings.unusedAction')));
+    if (props.picking) {
+      const on = picked.includes(a.id);
+      return h('label', {
+        key: a.id,
+        className: 'status-pet-gallery-cell' + (on ? ' selected' : ''),
+        title,
+      },
+        h('input', {
+          type: 'checkbox',
+          className: 'status-pet-gallery-check',
+          checked: on,
+          'aria-label': label,
+          title: t('settings.deleteSelected'),
+          onChange: () => props.onToggle!(a.id),
+        }),
+        painted,
+        text
+      );
+    }
+    return h('div', { className: 'status-pet-gallery-cell', key: a.id, title },
+      props.onEdit
+        ? h('button', {
+            type: 'button',
+            className: 'status-pet-gallery-edit',
+            'aria-label': label + ' — ' + t('settings.editAction'),
+            title: t('settings.editAction'),
+            onClick: () => props.onEdit!(a.id),
+          }, '✎')
+        : null,
+      painted,
+      text
+    );
+  };
+  return h('div', null,
+    // ONE search box, always here — it filters the tiles whether or not
+    // selection mode is on, and it is what 全选 and the removal act on.  The
+    // pick bar therefore carries no search of its own.
+    h('div', { className: 'status-pet-search-row status-pet-gallery-search' },
+      h('input', {
+        type: 'search',
+        className: 'status-pet-import-search',
+        value: query,
+        placeholder: t('settings.searchActions'),
+        'aria-label': t('settings.searchActions'),
+        onChange: (e: { target: { value: string } }) => props.onQuery!(e.target.value),
+      }),
+      query
+        ? h('span', { className: 'status-pet-hint' },
+            t('settings.searchMatches', { n: props.library.length, total: props.total }))
+        : null
+    ),
+    props.picking
+      ? h('div', { className: 'status-pet-pick-bar' },
+          h('div', { className: 'status-pet-bulk-ops' },
+            h('button', {
+              type: 'button', className: 'status-pet-mini-button', onClick: props.onAll,
+              disabled: props.library.length === 0,
+              title: t('settings.selectAllHint'),
+            }, t('settings.selectAll')),
+            h('button', {
+              type: 'button', className: 'status-pet-mini-button', onClick: props.onNone,
+              disabled: !picked.length,
+            }, t('settings.clearSelection')),
+            h('span', { className: 'status-pet-hint' }, t('settings.selectedCount', { n: picked.length })),
+            h('button', {
+              type: 'button',
+              className: 'status-pet-mini-button status-pet-danger',
+              onClick: props.onDelete,
+              disabled: !picked.length || props.blocked,
+              'aria-label': t('settings.deleteSelected'),
+              title: props.blocked ? t('settings.deleteBlocked') : t('settings.deleteSelected'),
+            }, t('settings.deleteSelected')),
+            props.note
+              ? h('span', { className: 'status-pet-hint' }, props.note)
+              : null
+          ),
+          h('div', { className: 'status-pet-hint' },
+            props.blocked ? t('settings.deleteBlocked') : t('settings.bulkHint'))
+        )
+      : null,
+    h('div', { className: 'status-pet-gallery' }, visible.map(cell)),
+    visible.length === 0
+      ? h('div', { className: 'status-pet-hint' },
+          query ? t('settings.searchEmpty', { q: query.trim() }) : t('settings.emptyLibrary'))
+      : null,
+    !props.picking && props.shown < props.library.length
       ? h('div', { className: 'status-pet-colors' },
           h('button', { type: 'button', className: 'status-pet-mini-button', onClick: props.onMore },
             t('settings.showMore')))

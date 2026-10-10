@@ -11,9 +11,10 @@
 //
 // There is exactly one artwork shape here.  A built-in is not composed from
 // anything at load time: it is the same `Artwork` object a custom skin is,
-// just authored by tools/gen-artwork.py instead of by the pixel studio.
-// `upgradeArtwork` converts the pre-v8 shape (a state owning its own takes) —
-// the one door for a v7 stored document and for the generated chunk.
+// just authored by a generator (no longer in this repo) instead of by the
+// pixel studio.  `upgradeArtwork` converts the pre-v8 shape (a state owning
+// its own takes) — the one door for a v7 stored document and for the baked
+// chunk.
 
 import { GRIDS } from '../grids.ts';
 
@@ -75,9 +76,9 @@ export interface Artwork {
 }
 
 /** The pre-v8 shape: every state OWNED its animations, so reuse was only ever
- * a copy.  It is still the shape of the generated built-in chunk (the Python
- * pipeline in tools/) and of a v7 stored document, so `upgradeArtwork` below
- * is the one door from it into the library model. */
+ * a copy.  It is still the shape of the baked built-in chunk (produced by the
+ * Python pipeline, no longer in this repo) and of a v7 stored document, so
+ * `upgradeArtwork` below is the one door from it into the library model. */
 export type LegacyStateTakes = Record<string, Take[]>;
 export interface LegacyArtwork {
   palette: string[];

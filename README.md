@@ -13,9 +13,8 @@ dock — pet her *there* and she hops with a little heart.
 ![version](https://img.shields.io/badge/version-1.0.0-green)
 ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
-> Every image in this README is rendered from the shipped artwork by
-> [`tools/gen-readme-media.py`](tools/gen-readme-media.py) — it is the same
-> pixel data the pet draws, not a mockup.
+> Every image in this README is rendered from the shipped artwork — it is the
+> same pixel data the pet draws, not a mockup.
 
 ## Why it exists
 
@@ -25,17 +24,21 @@ interrupt you — *it is waiting for your approval* — is a bubble somewhere in
 scrollback. The pet turns that into something you can read out of the corner of
 your eye, without reading anything.
 
-She is not a spinner with a few loops, either: **idle alone is 61 animations**
-(breathing, blowing bubbles, spinning a top, building a snowman…), and each one
-holds the screen for a few seconds before the next is rolled — so the dock is
-alive without ever being frantic. Yes, one of the "running a tool" animations is
-her eating a token.
+She is not a spinner with a few loops, either: the artwork is one
+**library of 106 animations**, and every state gets its own short, deliberate
+set of at most four — picked by what the state actually means, not by what
+happened to be left over. Idle breathes, checks the mirror, pets a cat or lets
+little animals circle her; a running tool gets 写代码 and 敲击桌面; a failed turn
+gets the sighing, sweating, tail-slapping ones. Each animation holds the screen
+for a few seconds before the next is rolled — so the dock is alive without ever
+being frantic. Yes, one of the "running a tool" animations is her eating a
+token.
 
 ## Every state
 
 | | State | You see it when |
 |---|---|---|
-| <img src="docs/media/states/idle.gif" width="80" alt="Idle"> | **Idle** · 空闲 | nothing is running — one of **61 everyday animations**: breathing, blowing bubbles, brushing her teeth, spinning a top, swinging on a swing, petting a cat… |
+| <img src="docs/media/states/idle.gif" width="80" alt="Idle"> | **Idle** · 空闲 | nothing is running — **four everyday animations**: breathing, looking in the mirror, petting a cat, little animals circling her |
 | <img src="docs/media/states/sleep.gif" width="80" alt="Sleeping"> | **Sleeping** · 睡觉中 | nothing has happened for a minute — dimmed, eyes closed |
 | <img src="docs/media/states/think.gif" width="80" alt="Thinking"> | **Thinking…** · 思考中… | busy with no output yet — she reacts the instant you hit send |
 | <img src="docs/media/states/stream.gif" width="80" alt="Responding"> | **Responding…** · 回复中… | output is arriving: assistant text, or a tool call's arguments still being written |
@@ -156,18 +159,30 @@ skin cards on top, then two tabs:
   place a state you forgot to tick anything for is visible). **按动作** is the
   material: every action in the library, live, including the ones no state plays
   yet, each labelled with the states that do. Hover a state cell and the tooltip
-  says what the state means. Every STATE cell wears a small **✎** in its top-right
+  says what the state means. Both modes carry a **search box** — 按状态 matches a
+  state by its name, its meaning or an action it plays; 按动作 matches an action.
+  On 我的创作 the 按动作 bar carries **批量删除**: the tiles become checkboxes,
+  全选 / 清空 / 删除选中 appear, and the ticked actions leave the library in one
+  step — after a confirm dialog, because a removal cannot be undone. Every STATE cell wears a small **✎** in its top-right
   corner — click it to jump straight into 编辑 with that state in front of you —
   and on 我的创作 an action cell has one too, jumping into the studio with that
   action on the board.
 - **编辑 / Edit** — the same two words, the same two modes, but this time you
   are changing things. **按动作** is the pixel studio: an **action dropdown** picks
   the one action on the board, then 画布 / 画笔 / 帧 / 当前帧 below it, with
-  新建动作 / 删除动作 / 导入动作 beside it (no 复制动作 — 导入 into a new slot is the
-  same job). **按状态** is
+  新建动作 / 删除动作 / 导入动作 beside it (导入 into a new slot is the whole
+  复制动作 story). **按状态** is
   where the library lives: a **state dropdown** picks which state you are ticking
-  for, then one checkbox per action says whether that state plays it, with
-  全选 / 清空 beside it. The two never mix — nothing on the
+  for, a **search box** narrows the list (全选 ticks everything currently listed,
+  so it is aimable rather than all-or-nothing), then one checkbox per action says
+  whether that state plays it, with 全选 / 清空 beside it. The actions the state
+  already plays are listed **first**, under an 已勾给该状态 header — so what the
+  state does is the first thing you read, instead of being scattered through the
+  library — with 其他动作 below them; each half keeps the library's order. 清空
+  empties any state;
+  on 空闲 it keeps the first action, because 空闲 is the fallback every unassigned
+  state follows and the pet would have nothing to draw. The two never mix —
+  nothing on the
   studio page mentions a state, and nothing on the assignment page mentions a
   paint brush. **A built-in can be re-assigned, never re-drawn**: its 编辑 tab is
   there, but the switch drops 按动作 — a built-in keeps its pixels, so what you
@@ -221,7 +236,6 @@ dsh-status-pet/
 ├── src/                the real TypeScript source
 ├── test/               node:test suite (no browser, no DOM)
 ├── bench/              the performance harness (`pnpm bench`) — not shipped
-├── tools/              the artwork pipeline and the README media generator (not shipped)
 └── AGENTS.md           the full architecture & contributor reference
 ```
 
@@ -270,12 +284,12 @@ wardrobe is keyed that way:
 
 ### The artwork is baked, and now frozen
 
-The built-in artwork was generated once, from `assets/*.gif` plus
-`tools/gif-map.json` (the recipe: state → gifs), by
-`tools/gen-artwork.py` — and all three of those inputs have since been
-**deleted**. What remains is `src/artwork.gen.ts` (now the source of truth,
-edited by hand when a built-in action needs a fix) and `tools/ARTWORK.md` (the
-frozen catalog: every action, its id, its gif, its frames and its gloss).
+The built-in artwork was generated once from source gifs plus a recipe mapping
+each state to them, by a Python pipeline — and all of those inputs have since
+been **deleted**, along with the pipeline itself. What remains is
+`src/artwork.gen.ts` (now the source of truth, edited by hand when a built-in
+action needs a fix), whose per-action provenance comments are the frozen
+catalog: every action, its id, its gif, its frames and its gloss.
 
 Each `[gif, gloss]` pair became one LIBRARY ACTION — the gloss as its name, the
 gif name as its provenance — with four sampled frames and the palette quantised
@@ -299,14 +313,12 @@ truth table, interactions, localisation, registration, artwork geometry and the
 anti-clipping guard on every animation, the skin store and the studio. It needs
 no browser; appearance itself needs eyes on a running instance.
 
-### Regenerating the README images
+### README images
 
-```bash
-python3 tools/gen-readme-media.py     # → docs/media/ (needs Pillow + node)
-```
-
-It rasterises the shipped frames with the renderer's own geometry and integer
-scaling, so the images cannot drift from the artwork.
+`docs/media/` holds frozen snapshots rasterised from the shipped frames with the
+renderer's own geometry and integer scaling, so the images cannot drift from the
+artwork. The script that produced them was removed along with the artwork
+pipeline; `git log` still has it if they ever need to be re-rendered.
 
 </details>
 

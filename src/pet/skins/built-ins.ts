@@ -4,17 +4,17 @@
 // type in compose.ts) — a palette plus one framed animation per state, per
 // crop.  Nothing is composed, mirrored or upscaled at load any more.
 //
-// The data is built from assets/*.gif by tools/gen-artwork.py and shipped as a
+// The data is baked from raw gif material (now deleted) and shipped as a
 // SEPARATE, lazily-loaded chunk (`client.artwork.js`), so ~16MB of frames never
 // enter the main bundle.  Until that chunk arrives `SKINS` is empty and the pet
 // draws nothing (a few milliseconds at boot, loaded in parallel);
 // `installArtwork()` then swaps the registry in and the store re-resolves and
 // broadcasts, so every canvas picks it up on its next frame.
 //
-// The artwork is FROZEN data now: the generator that produced it (and its two
-// inputs, assets/*.gif and tools/gif-map.json) are gone, so `artwork.gen.ts` is
-// edited by hand.  tools/gen-artwork.py survives as the format reference and
-// tools/ARTWORK.md as the catalog of what shipped.
+// The artwork is FROZEN data now: the generator that produced it (and its
+// inputs, the assets/*.gif files and the recipe that mapped them) are gone from
+// this repo, so `artwork.gen.ts` is edited by hand.  Its per-action provenance
+// comments are the catalog of what shipped.
 
 import type { Artwork } from './compose.ts';
 

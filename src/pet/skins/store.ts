@@ -64,6 +64,7 @@ export type { LibraryEntryInfo, ParseResult } from './documents.ts';
 export {
   gridArtwork, withGridArtwork, libraryInfo, usageIndex, usedBy,
   assignTake, setStateSelection, addLibraryTake, removeLibraryTake,
+  removeLibraryTakes, removalIsBlocked,
   renameLibraryTake, replaceLibraryTake, overwriteLibraryTake,
 } from './library.ts';
 

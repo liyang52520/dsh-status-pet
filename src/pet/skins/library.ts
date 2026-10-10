@@ -162,6 +162,40 @@ export function removeLibraryTake(art: Artwork, grid: number, id: string): Artwo
   return withGridArtwork(art, grid, { library: g.library.filter((t) => t.id !== id), states });
 }
 
+/** Would removing these actions leave the crop unusable?  Two deletions can:
+ *  emptying the library, and taking away the last action `idle` plays.  Asked
+ *  by the studio's 批量管理 to DISABLE the button, and by the mutator below to
+ *  REFUSE the write — `validateArtwork` requires an idle animation, and a
+ *  document that fails validation is dropped on the next read, losing the whole
+ *  drawing.  A guard that only exists in the UI is not a guard. */
+export function removalIsBlocked(art: Artwork, grid: number, ids: readonly string[]): boolean {
+  const g = gridArtwork(art, grid);
+  if (!ids.length) return false;
+  const gone = new Set(ids);
+  const left = g.library.filter((t) => !gone.has(t.id));
+  if (!left.length) return true;
+  const idle = g.states.idle || [];
+  return idle.length > 0 && idle.every((id) => gone.has(id));
+}
+
+/** Remove SEVERAL actions in ONE pass (编辑 · 按动作's 批量管理): the library
+ *  loses them, every state that referenced any of them loses just those
+ *  references, and the caller gets one artwork — which is one undo step.
+ *  Refuses the write outright when `removalIsBlocked` says it would invalidate
+ *  the document. */
+export function removeLibraryTakes(art: Artwork, grid: number, ids: readonly string[]): Artwork {
+  const g = gridArtwork(art, grid);
+  if (!ids.length || removalIsBlocked(art, grid, ids)) return art;
+  const gone = new Set(ids);
+  if (!g.library.some((t) => gone.has(t.id))) return art;
+  const states: Record<string, string[]> = {};
+  for (const state of Object.keys(g.states)) {
+    const rest = g.states[state].filter((x) => !gone.has(x));
+    if (rest.length) states[state] = rest;
+  }
+  return withGridArtwork(art, grid, { library: g.library.filter((t) => !gone.has(t.id)), states });
+}
+
 /** Rename an action (an empty name clears it, so the UI shows the position). */
 export function renameLibraryTake(art: Artwork, grid: number, id: string, name: string): Artwork {
   const g = gridArtwork(art, grid);

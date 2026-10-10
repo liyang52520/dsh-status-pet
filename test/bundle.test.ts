@@ -150,7 +150,15 @@ test('the artwork chunk registers itself and carries the generated frames', asyn
   assert.ok(art, 'the chunk carries the built-in artwork');
   const states = Object.keys(art.grids[32].states);
   assert.ok(states.length >= 9, 'the whole state vocabulary is there');
-  assert.ok(art.grids[128].states.idle.length > 4, 'a state can play many actions');
+  // The shipped DEFAULTS are an authoring convention: every state names at
+  // least one action and at most four, each of them matching what the state
+  // MEANS.  This is a rule about the built-in's data, not a cap in the store
+  // or the renderer — a custom skin may put up to MAX_TAKES on one state.
+  for (const [state, ids] of Object.entries(art.grids[128].states as Record<string, string[]>)) {
+    assert.ok(ids.length >= 1 && ids.length <= 4, `${state} plays 1–4 default actions`);
+  }
+  assert.ok(art.grids[32].library.length > 4 * Object.keys(art.grids[32].states).length,
+    'the library is far larger than the short default lists');
   assert.ok(art.palette.length > 16, 'the palette holds the artwork colours');
   // The chunk ships the ACTION LIBRARY shape: named, unique ids the states
   // reference — not per-state copies.

@@ -47,6 +47,13 @@ test('every settings string is labelled in every locale', () => {
     'settings.importedOne', 'settings.usedByN', 'settings.unusedAction',
     'settings.playedHere', 'settings.emptyLibrary',
     'settings.libraryFull', 'settings.selectAll', 'settings.clearSelection',
+    // Finding an action in a 106-entry library, and editing several at once.
+    'settings.searchActions', 'settings.searchStates', 'settings.searchMatches', 'settings.searchEmpty',
+    'settings.selectAllHint', 'settings.confirmDeleteTitle', 'settings.confirmDeleteHint',
+    'settings.cancel', 'settings.confirmDelete',
+    'settings.selectedCount', 'settings.selectedMax',
+    'settings.manageActions', 'settings.bulkHint', 'settings.deleteSelected',
+    'settings.deleteBlocked', 'settings.actionsRemoved',
     // The seam between the two tabs: the corner ✎ and what it opens.
     'settings.editAction', 'settings.editState', 'settings.actionHint', 'settings.assignCropMissing',
     'settings.builtinStatesOnly', 'settings.clearIdleHint',

@@ -555,25 +555,38 @@ test('编辑 · 按状态 is the assignment surface: a dropdown, its checkboxes 
   const render = mountPlain(StateAssignments, props);
   const rows = () => findAllDeep(render(), 'status-pet-library-row');
   const checks = () => rows().map((r: any) => inputsIn(r)[0]);
+  // Rows are found by the ACTION's name, never by position: the list puts the
+  // state's own ticks first, so an index is not an address any more.
+  const rowFor = (name: string) => rows().find((r: any) => textOf(r).startsWith(name))!;
+  const groups = () => findAllDeep(render(), 'status-pet-library-group').map((g: any) => textOf(g));
 
   // Two actions in the library; idle plays one of them, and tool plays neither.
   assert.equal(rows().length, 2, 'the list holds every action');
   assert.equal(optionLabels(render()).length, 11, 'every state is in the dropdown');
   const toolOption = optionLabels(render()).find((l: string) => l.startsWith('S:tool'));
   assert.ok(toolOption!.includes('S:settings.followIdle'), 'untouched states show the follow badge');
-  assert.equal(checks().map((c: any) => c.props.checked)[0], true, 'idle starts ticked');
+  assert.equal(inputsIn(rowFor('idle act'))[0].props.checked, true, 'idle starts ticked');
+  // The tick is at the TOP, under a header, with the rest below it — the page
+  // answers "what does this state do?" before it lists the material.
+  assert.deepEqual(checks().map((c: any) => c.props.checked), [true, false],
+    'the ticked action comes first');
+  assert.deepEqual(groups(), ['S:settings.libraryTickedGroup', 'S:settings.libraryRestGroup'],
+    'and the two halves are captioned');
   stateSelect(render()).props.onChange({ target: { value: 'tool' } });
   assert.deepEqual(checks().map((c: any) => c.props.checked), [false, false],
     'the list shows this state\'s selection, not the library');
+  assert.deepEqual(groups(), [], 'nothing ticked → one plain list, no headers');
 
-  // Tick the second action: the state now plays exactly it.
-  checks()[1].props.onChange({ target: { checked: true } });
+  // Tick the second action: the state now plays exactly it, and it jumps to
+  // the top of the list (the library order underneath never changes).
+  inputsIn(rowFor('hop act'))[0].props.onChange({ target: { checked: true } });
   let saved = store.loadStored().custom!;
   assert.deepEqual(saved.grids[AVATAR_GRID]!.states.tool, ['hop'], 'ticking adds the reference');
   assert.ok(optionLabels(render()).find((l: string) => l.startsWith('S:tool'))!
     .includes('S:settings.actionCount'), 'and the dropdown counts it');
-  assert.equal(inputsIn(rows()[1])[0].props.checked, true, 'the row is ticked');
-  assert.ok(textOf(rows()[1]).includes('S:settings.usedByN'), 'and the row says who plays it');
+  assert.equal(textOf(rows()[0]).startsWith('hop act'), true, 'the ticked row is first');
+  assert.equal(inputsIn(rowFor('hop act'))[0].props.checked, true, 'the row is ticked');
+  assert.ok(textOf(rowFor('hop act')).includes('S:settings.usedByN'), 'and the row says who plays it');
 
   // 「全选」 takes the whole library; 「清空」 is exactly the idle fallback — and
   // those two ARE the ops row: a state IS its selection, so the old "copy this
@@ -585,6 +598,10 @@ test('编辑 · 按状态 is the assignment surface: a dropdown, its checkboxes 
   findAllContaining(render(), 'S:settings.selectAll')[0].props.onClick();
   saved = store.loadStored().custom!;
   assert.deepEqual(saved.grids[AVATAR_GRID]!.states.tool, ['idle-1', 'hop'], 'all means all');
+  assert.deepEqual(checks().map((c: any) => c.props.checked), [true, true],
+    'and everything is in the ticked half');
+  assert.deepEqual(groups(), [],
+    'the whole library ticked → still one plain list, just all of it');
   findAllContaining(render(), 'S:settings.clearSelection')[0].props.onClick();
   assert.deepEqual(ops(), ['S:settings.selectAll'],
     'and 清空 disappears on the empty selection it just produced');
@@ -803,6 +820,13 @@ function findAllByLabel(el: any, label: string, out: any[] = []): any[] {
   if (el.props && el.props['aria-label'] === label) out.push(el);
   for (const c of childList(el)) findAllByLabel(c, label, out);
   return out;
+}
+
+// Is this string on screen as an authored HINT?  `findAllByText` counts the
+// wrapper too when the hint is a container's only text, so the class is what
+// makes "the hint says X" mean what it says.
+function hintSays(tree: any, text: string): boolean {
+  return findAllDeep(tree, 'status-pet-hint').some((el: any) => textOf(el) === text);
 }
 
 test('skin picker: one card per skin + custom; selecting persists', () => {
@@ -1095,8 +1119,11 @@ test("assignments: a built-in's state assignment is a stored DIFF, and nothing f
     onStateChange: (s: string) => { props.state = s; } };
   const render = mountPlain(StateAssignments, props);
   const lib = store.skinLibrary('whale-chan', AVATAR_GRID);
+  // Looked up by NAME, not by position: the list shows this state's own ticks
+  // first, so an index into the library is no longer an index into the rows.
   const rowFor = (id: string) =>
-    findAllDeep(render(), 'status-pet-library-row')[lib.findIndex((a) => a.id === id)];
+    findAllDeep(render(), 'status-pet-library-row')
+      .find((r: any) => textOf(r).startsWith(lib.find((a) => a.id === id)!.name!))!;
   const authored = store.skinArtwork('whale-chan')!.grids[AVATAR_GRID]!.states;
   const authoredTool = authored.tool!.length;
 
@@ -1141,7 +1168,7 @@ test("assignments: a built-in's state assignment is a stored DIFF, and nothing f
   clearStorage();
 });
 
-test('assignments: 清空 is refused for idle — every unassigned state falls back to it', () => {
+test('assignments: 清空 works on EVERY state — 空闲 keeps one, because it is the anchor', () => {
   clearStorage();
   store.saveStored({ skin: 'custom', custom: studioFixture() });
   store.refreshActiveSkin();
@@ -1149,21 +1176,72 @@ test('assignments: 清空 is refused for idle — every unassigned state falls b
     onStateChange: (s: string) => { props.state = s; } };
   const render = mountPlain(StateAssignments, props);
   const clear = () => findAllByText(render(), 'S:settings.clearSelection')[0];
+  const idle = () => store.loadStored().custom!.grids[AVATAR_GRID]!.states.idle;
 
-  assert.equal(clear().props.disabled, true, 'idle cannot be emptied');
+  // 空闲 is the state the dropdown opens on, and the rule that shapes its two
+  // buttons is printed — not left to a title a button cannot show.
+  assert.equal(findAllByText(render(), 'S:settings.clearIdleHint').length, 1,
+    'the anchor rule is on screen whenever 空闲 is');
+
+  // 全选 then 清空 is the bulk round trip that used to DEAD-END on 空闲: the
+  // ticks went on and nothing could take them off again.
+  findAllContaining(render(), 'S:settings.selectAll')[0].props.onClick();
+  assert.deepEqual(idle(), ['idle-1', 'hop'], '全选 ticks the whole library');
   clear().props.onClick();
-  assert.deepEqual(store.loadStored().custom!.grids[AVATAR_GRID]!.states.idle, ['idle-1'],
-    'and the document is untouched');
-  assert.deepEqual(store.validateArtwork(store.loadStored().custom!), [], 'so it still validates');
+  assert.deepEqual(idle(), ['idle-1'], '清空 clears 空闲 down to ONE — never to nothing');
+  assert.deepEqual(store.validateArtwork(store.loadStored().custom!), [],
+    'so the document still validates and the pet keeps drawing');
 
-  // Any other state may be emptied: an empty selection IS the idle fallback.
+  // Every other state empties COMPLETELY: an empty selection IS the idle
+  // fallback, and that is the one representation of "unset".
   stateSelect(render()).props.onChange({ target: { value: 'tool' } });
+  assert.equal(findAllByText(render(), 'S:settings.clearIdleHint').length, 0,
+    'the anchor hint belongs to 空闲 alone');
   inputsIn(findAllDeep(render(), 'status-pet-library-row')[1])[0]
     .props.onChange({ target: { checked: true } });
-  assert.equal(clear().props.disabled, false, 'a non-idle state may be cleared');
   clear().props.onClick();
   assert.equal(store.loadStored().custom!.grids[AVATAR_GRID]!.states.tool, undefined,
-    'and clearing removes the key — the state follows idle');
+    'a non-idle state clears to empty — the state follows idle');
+  clearStorage();
+});
+
+test('assignments: the search box narrows the list, and 全选 only ticks what is listed', () => {
+  clearStorage();
+  store.saveStored({ skin: 'custom', custom: studioFixture() });
+  store.refreshActiveSkin();
+  const props: any = { t: tKey, skin: 'custom', grid: AVATAR_GRID, state: 'tool',
+    onStateChange: (s: string) => { props.state = s; } };
+  const render = mountPlain(StateAssignments, props);
+  const rows = () => findAllDeep(render(), 'status-pet-library-row');
+  const search = () => findDeep(render(), 'status-pet-import-search');
+
+  assert.equal(rows().length, 2, 'the whole library first');
+  assert.equal(findAllByText(render(), 'S:settings.searchMatches').length, 0,
+    'no match count while nothing is filtered');
+
+  search().props.onChange({ target: { value: 'hop act' } });
+  assert.equal(rows().length, 1, 'the filter narrows the list by name');
+  assert.equal(textOf(rows()[0]).includes('hop act'), true);
+  assert.equal(findAllByText(render(), 'S:settings.searchMatches').length, 1,
+    'and says how much of the library it is showing');
+  assert.equal(findAllByText(render(), 'S:settings.selectedCount').length, 1,
+    'the tick count is a read-out, not a guess');
+
+  // 全选 is AIMED: it ticks what the filter listed, on top of what the state
+  // already plays — replacing would silently drop ticks the filter hides.
+  findAllContaining(render(), 'S:settings.selectAll')[0].props.onClick();
+  assert.deepEqual(store.loadStored().custom!.grids[AVATAR_GRID]!.states.tool, ['hop'],
+    'only the listed action was ticked');
+
+  search().props.onChange({ target: { value: '' } });
+  findAllContaining(render(), 'S:settings.selectAll')[0].props.onClick();
+  assert.deepEqual(store.loadStored().custom!.grids[AVATAR_GRID]!.states.tool, ['idle-1', 'hop'],
+    'and unfiltered it adds the rest, in library order');
+
+  search().props.onChange({ target: { value: 'nothing matches this' } });
+  assert.equal(rows().length, 0, 'no rows');
+  assert.ok(hintSays(render(), 'S:settings.searchEmpty'),
+    'and the empty state says so instead of looking broken');
   clearStorage();
 });
 
@@ -1320,6 +1398,126 @@ test('pixel studio: 新建动作 / 删除动作, and delete refuses to strand id
   del().props.onClick();
   assert.equal(size(), 2, 'the selected action is gone');
   assert.deepEqual(store.validateArtwork(store.loadStored().custom!), [], 'and the artwork is still valid');
+  clearStorage();
+});
+
+test('预览 · 按动作: 批量删除 ticks several actions, and a dialog confirms the removal', () => {
+  clearStorage();
+  const fixture: any = studioFixture();
+  const grid = fixture.grids[AVATAR_GRID];
+  grid.library.push(
+    { id: 'sleep-a', name: 'sleep act', frameMs: 400, frames: [{ rows: store.blankRows(AVATAR_GRID) }] },
+    { id: 'tool-a', name: 'tool act', frameMs: 400, frames: [{ rows: store.blankRows(AVATAR_GRID) }] },
+  );
+  // Two actions shared by one state, so the delete has real references to strip.
+  grid.states.tool = ['sleep-a', 'tool-a'];
+  store.saveStored({ skin: 'custom', custom: fixture });
+  store.refreshActiveSkin();
+  const render = mountPlain(SettingsPage, { t: tKey });
+  const ids = () => store.loadStored().custom!.grids[AVATAR_GRID]!.library.map((a) => a.id);
+  const checks = () => findAllDeep(render(), 'status-pet-gallery-check');
+  const del = () => findAllContaining(render(), 'S:settings.deleteSelected')[0];
+  const dialog = () => findDeep(render(), 'status-pet-confirm');
+  const manage = () => findAllByLabel(render(), 'S:settings.manageActions');
+
+  // The gallery's OWN search is there before any selection mode, and the mode
+  // is offered by 按动作 alone (按状态 has no action to select).
+  findAllByText(render(), 'S:settings.view.actions')[0].props.onClick();
+  assert.equal(findAllDeep(render(), 'status-pet-import-search').length, 1,
+    '按动作 carries its search box');
+  assert.equal(checks().length, 0, 'no checkboxes until selection mode is asked for');
+  assert.equal(findAllDeep(render(), 'status-pet-gallery-edit').length, 4,
+    'every tile carries its corner ✎ while just looking');
+  // The button is a plain label: no icon prefix.
+  assert.equal(textOf(manage()[0]), 'S:settings.manageActions', 'no icon on the button');
+  manage()[0].props.onClick();
+  assert.equal(checks().length, 4, 'selection mode makes every action checkable');
+  assert.equal(findAllDeep(render(), 'status-pet-gallery-edit').length, 0,
+    'and the corner ✎ gives way to the checkbox');
+  assert.equal(findAllDeep(render(), 'status-pet-import-search').length, 1,
+    'the pick bar adds no second search box');
+
+  checks()[2].props.onChange();
+  checks()[3].props.onChange();
+  assert.ok(hintSays(render(), 'S:settings.selectedCount'), 'the tick count is a read-out');
+
+  // A removal is not undoable, so it asks FIRST — and cancelling writes nothing.
+  del().props.onClick();
+  assert.ok(dialog(), 'clicking Delete selected opens the confirm dialog');
+  assert.equal(ids().length, 4, 'and nothing has been removed yet');
+  findAllContaining(render(), 'S:settings.cancel')[0].props.onClick();
+  assert.equal(dialog(), null, 'Cancel closes it');
+  assert.equal(ids().length, 4, 'still nothing removed');
+
+  del().props.onClick();
+  findAllContaining(render(), 'S:settings.confirmDelete')[0].props.onClick();
+  assert.equal(dialog(), null, 'the dialog closes on confirm');
+  assert.deepEqual(ids(), ['idle-1', 'hop'], 'one write removed both');
+  assert.equal(store.loadStored().custom!.grids[AVATAR_GRID]!.states.tool, undefined,
+    'and every state that referenced them lost just those references');
+  assert.deepEqual(store.validateArtwork(store.loadStored().custom!), [], 'the document stays valid');
+  assert.ok(hintSays(render(), 'S:settings.actionsRemoved'), 'and it says what happened');
+
+  // The guards are the single delete's, applied to the whole selection: idle
+  // would lose its only action, and emptying the library is refused too.
+  checks()[0].props.onChange();
+  assert.equal(del().props.disabled, true, 'deleting idle\'s only action is refused');
+  assert.equal(del().props.title, 'S:settings.deleteBlocked', 'and the reason is on the button');
+  del().props.onClick();
+  assert.equal(dialog(), null, 'a blocked removal never opens the dialog');
+  checks()[0].props.onChange();
+  for (const c of checks()) c.props.onChange();
+  assert.equal(del().props.disabled, true, 'so is deleting the whole library');
+  assert.equal(ids().length, 2, 'and the two that were removed stay removed — there is no undo');
+  clearStorage();
+});
+
+test('预览: both modes carry a search, and 批量删除 is 我的创作 · 按动作 alone', () => {
+  clearStorage();
+  store.saveStored({ skin: 'custom', custom: studioFixture() });
+  store.refreshActiveSkin();
+  let render = mountPlain(SettingsPage, { t: tKey });
+  const searches = () => findAllDeep(render(), 'status-pet-import-search');
+  const cells = () => findAllDeep(render(), 'status-pet-gallery-cell');
+
+  // 按状态: a search that finds a STATE — by name, meaning, or an action it plays.
+  assert.equal(searches().length, 1, '按状态 carries a search box');
+  assert.equal(cells().length, 11, 'all eleven states');
+  assert.equal(findAllByLabel(render(), 'S:settings.manageActions').length, 0,
+    'and no 批量删除 here — 按状态 has nothing to select');
+  searches()[0].props.onChange({ target: { value: 'idle act' } });
+  assert.equal(cells().length, 1, 'searching an action name finds the states that play it');
+  searches()[0].props.onChange({ target: { value: 'no such state' } });
+  assert.equal(cells().length, 0, 'nothing matches');
+  assert.ok(hintSays(render(), 'S:settings.searchEmpty'), 'and the empty state says so');
+
+  // 按动作: the same box, and here it scopes 全选.
+  findAllByText(render(), 'S:settings.view.actions')[0].props.onClick();
+  assert.equal(searches().length, 1, '按动作 carries its own search box');
+  const manage = () => findAllByLabel(render(), 'S:settings.manageActions');
+  assert.equal(manage().length, 1, '我的创作 offers the mode');
+  manage()[0].props.onClick();
+  const checks = () => findAllDeep(render(), 'status-pet-gallery-check');
+  assert.equal(checks().length, 2, 'the whole library is checkable');
+  searches()[0].props.onChange({ target: { value: 'hop' } });
+  assert.equal(checks().length, 1, 'the filter narrows the grid');
+  assert.ok(hintSays(render(), 'S:settings.searchMatches'), 'and reports how much of the library it shows');
+  findAllContaining(render(), 'S:settings.selectAll')[0].props.onClick();
+  assert.deepEqual(checks().map((c: any) => c.props.checked), [true],
+    '全选 takes what the search matched');
+  findAllContaining(render(), 'S:settings.clearSelection')[0].props.onClick();
+  assert.deepEqual(checks().map((c: any) => c.props.checked), [false], '清空 unticks the selection');
+
+  // A built-in's actions are frozen: the gallery still searches, but there is
+  // nothing to select or delete.
+  clearStorage();
+  store.saveStored({ skin: 'whale-chan' });
+  store.refreshActiveSkin();
+  render = mountPlain(SettingsPage, { t: tKey });
+  findAllByText(render(), 'S:settings.view.actions')[0].props.onClick();
+  assert.equal(searches().length, 1, '按动作 searches on a built-in too');
+  assert.equal(findAllByLabel(render(), 'S:settings.manageActions').length, 0,
+    'a built-in cannot prune its library');
   clearStorage();
 });
 

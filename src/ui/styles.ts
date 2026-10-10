@@ -77,6 +77,22 @@ export const CSS = [
   '.status-pet-gallery-edit:hover,.status-pet-gallery-edit:focus-visible{opacity:1;color:inherit;',
   'background:var(--dsw-alias-interactive-bg-hover);}',
   '.status-pet-gallery-edit:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px;}',
+  // SELECTION mode (预览 · 按动作, 我的创作): the corner ✎ becomes a checkbox, and a
+  // ticked tile is ringed so a screenful of 24 tiles reads as one set.  The same
+  // tiles do the looking — the mode only changes what a click means.
+  '.status-pet-gallery-check{position:absolute;top:4px;right:4px;width:18px;height:18px;margin:0;',
+  'cursor:pointer;z-index:1;}',
+  '.status-pet-gallery-cell.selected{border-color:var(--dsw-alias-state-business-primary);',
+  'background:color-mix(in srgb, var(--dsw-alias-state-business-primary) 8%, transparent);}',
+  '.status-pet-pick-bar{display:flex;flex-direction:column;gap:6px;padding:8px 0;}',
+  // The removal CONFIRM — a small overlay, because a removal is not undoable
+  // and this page has no history stack to fall back on.
+  '.status-pet-confirm{position:fixed;inset:0;z-index:40;display:flex;align-items:center;',
+  'justify-content:center;padding:16px;background:color-mix(in srgb, #000 42%, transparent);}',
+  '.status-pet-confirm-card{display:flex;flex-direction:column;gap:10px;max-width:320px;width:100%;',
+  'padding:14px 16px;border-radius:var(--dsw-radius-md);border:.5px solid var(--dsw-alias-border-l2);',
+  'background:var(--dsw-specific-menu);box-shadow:var(--dsw-elevation-panel);}',
+  '.status-pet-confirm-title{font-size:14px;line-height:20px;font-weight:600;}',
   '.status-pet-gallery-text{display:flex;flex-direction:column;align-items:center;',
   'gap:2px;min-width:0;width:100%;}',
   '.status-pet-gallery-label{color:var(--dsw-alias-label-secondary);font-size:12px;',
@@ -118,6 +134,11 @@ export const CSS = [
   'border-radius:var(--dsw-radius-md);border:.5px solid var(--dsw-alias-border-l2);',
   'background:transparent;cursor:pointer;font-family:inherit;color:inherit;}',
   '.status-pet-mini-button:hover{background:var(--dsw-alias-interactive-bg-hover);}',
+  // A disabled mini button must LOOK disabled: without this it kept the hover
+  // highlight and the pointer cursor, so 清空 on 空闲 (the one refused op) was
+  // indistinguishable from a broken button.
+  '.status-pet-mini-button:disabled,.status-pet-mini-button[aria-disabled=true]{opacity:.45;cursor:not-allowed;}',
+  '.status-pet-mini-button:disabled:hover,.status-pet-mini-button[aria-disabled=true]:hover{background:transparent;}',
   '.status-pet-mini-button.active{border-color:var(--dsw-alias-state-business-primary);',
   'background:color-mix(in srgb, var(--dsw-alias-state-business-primary) 8%, transparent);}',
   '.status-pet-grid-toggle{display:flex;gap:8px;align-items:center;padding:4px 0 8px;}',
@@ -195,6 +216,12 @@ export const CSS = [
   'border-radius:6px;min-width:0;}',
   '.status-pet-library-check{flex:none;margin:0;cursor:pointer;}',
   '.status-pet-library-row{cursor:pointer;}',
+  // The two group captions ("已勾给该状态（n）" / "其他动作（n）"): a plain label
+  // line, not a control — the rows under it are still just checkboxes.  It is
+  // what makes a tick's jump to the top read as deliberate instead of as a
+  // list that moved under the pointer for no reason.
+  '.status-pet-library-group{padding:4px 4px 0;font-size:11px;line-height:16px;',
+  'color:var(--dsw-alias-label-tertiary);}',
   '.status-pet-library-row canvas{flex:none;border-radius:3px;}',
   '.status-pet-library-name{font-size:12px;line-height:16px;color:var(--dsw-alias-label-secondary);',
   'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}',
@@ -209,6 +236,22 @@ export const CSS = [
   '.status-pet-import-search{box-sizing:border-box;width:100%;font-family:inherit;font-size:12px;',
   'line-height:16px;border:.5px solid var(--dsw-alias-border-l2);border-radius:6px;',
   'padding:4px 8px;background:transparent;color:inherit;}',
+  // A search box SHARING its line with the read-outs beside it (the library
+  // count, how many are ticked): the import fold's own box keeps its full width,
+  // so only the rows that opt in are overridden.
+  '.status-pet-search-row{flex:1 1 100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0;}',
+  '.status-pet-search-row .status-pet-import-search{flex:1 1 160px;width:auto;}',
+  // …and in a PREVIEW GALLERY the row is the grid's header, in a plain column
+  // with no `gap`: without this the box sat flush against the first row of tiles
+  // (the reported "completely stuck together").
+  '.status-pet-gallery-search{margin:2px 0 12px;}',
+  '.status-pet-full{color:var(--dsw-alias-state-warn-primary);}',
+  // ── 批量管理 (编辑 · 按动作) ── the library as a checkable list.  Its rows are
+  // the assignment list's rows, so the two surfaces recognise the same action
+  // the same way; only the ops row and the fold's own box are new.
+  '.status-pet-bulk{flex:1 1 100%;display:flex;flex-direction:column;gap:6px;min-width:0;}',
+  '.status-pet-bulk-ops{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}',
+  '.status-pet-danger{color:var(--dsw-alias-state-error-primary);}',
   '.status-pet-import-body{display:flex;flex-direction:column;gap:8px;min-width:0;',
   'max-height:260px;overflow:auto;border:.5px solid var(--dsw-alias-border-l2);',
   'border-radius:var(--dsw-radius-md);padding:4px;}',

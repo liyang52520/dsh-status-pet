@@ -62,9 +62,9 @@ const DOCK_ORDER = -1000;
 // on demand (`require.async`), so ~16MB of frames never enter this bundle.  It
 // is requested at the earliest possible moment — the factory runs before the
 // dock mounts — and the pet simply draws an empty canvas until it lands.
-// The artwork is FROZEN data now: its raw material (assets/*.gif and
-// tools/gif-map.json) was deleted, so src/artwork.gen.ts is the source of
-// truth and is edited by hand when a built-in action needs a fix.
+// The artwork is FROZEN data now: its raw material (the source gifs and the
+// recipe that mapped them) was deleted, so src/artwork.gen.ts is the source
+// of truth and is edited by hand when a built-in action needs a fix.
 function loadArtworkChunk(require: (spec: string) => unknown): void {
   const async = (require as { async?: (spec: string) => Promise<unknown> }).async;
   if (typeof async !== 'function') return;   // a host without chunk support: the pet stays blank

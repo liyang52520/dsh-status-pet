@@ -6,10 +6,10 @@
 // `require.async('./client.artwork.js')`, so the ~16MB of frames stay out of
 // the main bundle and are fetched once, then served from the immutable cache.
 //
-// The data itself is FROZEN: it was generated once by tools/gen-artwork.py,
-// whose inputs (assets/*.gif + tools/gif-map.json) have since been deleted.
-// `src/artwork.gen.ts` is therefore the source of truth and IS edited by hand;
-// see its header, and tools/ARTWORK.md for the catalog.
+// The data itself is FROZEN: it was generated once from raw gif material that
+// has since been deleted from this repo, along with the generator and its
+// recipe.  `src/artwork.gen.ts` is therefore the source of truth and IS edited
+// by hand; its per-action provenance comments are the catalog of what shipped.
 
 import { ARTWORK } from './artwork.gen.ts';
 

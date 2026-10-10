@@ -59,6 +59,8 @@ const {
   setStateSelection,
   addLibraryTake,
   removeLibraryTake,
+  removeLibraryTakes,
+  removalIsBlocked,
   renameLibraryTake,
   replaceLibraryTake,
   skinLibrary,
@@ -345,6 +347,40 @@ test('assigning an action to a state is a REFERENCE, never a copy', () => {
     'a whole selection is filtered to real, distinct ids');
   next = setStateSelection(next, AVATAR_GRID, 'done', []);
   assert.equal(next.grids[AVATAR_GRID]!.states.done, undefined, 'clearing removes the key');
+});
+
+test('removeLibraryTakes: several actions in ONE pass, and the guards hold', () => {
+  // 编辑 · 按动作's 批量管理 is one write, so it is one undo step — and the two
+  // deletions the single button refuses are refused for the whole selection.
+  const art = addLibraryTake(
+    addLibraryTake(minimalArtwork() as any, AVATAR_GRID, take(blankRows(AVATAR_GRID), { dy: 1 }),
+      { id: 'hop', name: 'hop' }).art,
+    AVATAR_GRID, take(blankRows(AVATAR_GRID), { dy: 2 }), { id: 'sleep-a', name: 'sleep' },
+  ).art;
+  const withRefs = setStateSelection(art, AVATAR_GRID, 'tool', ['hop', 'sleep-a']);
+  assert.deepEqual(withRefs.grids[AVATAR_GRID]!.states.tool, ['hop', 'sleep-a']);
+
+  const empty = removeLibraryTakes(withRefs, AVATAR_GRID, []);
+  assert.equal(empty, withRefs, 'removing nothing is a no-op');
+
+  const next = removeLibraryTakes(withRefs, AVATAR_GRID, ['hop', 'sleep-a', 'ghost']);
+  assert.deepEqual(next.grids[AVATAR_GRID]!.library.map((a) => a.id), ['idle-1']);
+  assert.equal(next.grids[AVATAR_GRID]!.states.tool, undefined,
+    'every state that referenced any of them loses just those references');
+  assert.deepEqual(validateArtwork(next), [], 'and the document is still valid');
+  assert.deepEqual(validateArtwork(withRefs), [], 'the old document is untouched (immutable)');
+
+  // The two refusals: no idle animation, and no library at all.
+  assert.equal(removalIsBlocked(withRefs, AVATAR_GRID, ['idle-1']), true,
+    'idle\'s only action cannot go');
+  assert.equal(removalIsBlocked(withRefs, AVATAR_GRID, ['idle-1', 'hop', 'sleep-a']), true,
+    'neither can the whole library');
+  assert.equal(removalIsBlocked(withRefs, AVATAR_GRID, ['hop']), false,
+    'an action idle does not need is fine');
+  assert.equal(removeLibraryTakes(withRefs, AVATAR_GRID, ['idle-1']), withRefs,
+    'the mutator refuses what the predicate blocks, even called directly');
+  assert.equal(removeLibraryTakes(withRefs, AVATAR_GRID, ['idle-1', 'hop', 'sleep-a']), withRefs,
+    'including the deletion that would empty the library');
 });
 
 test('addLibraryTake shares identical work but can be told to mint a new action', () => {
