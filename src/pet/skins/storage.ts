@@ -2,19 +2,25 @@
 //
 // ── what is stored ──
 //
-//   { v: 8,                                   schema version
+//   { v: 9,                                   schema version
 //     skin: 'whale-chan' | 'custom',
 //     brushes: ['#rrggbb', …6…],              the paint box (UI state)
 //     builtinStates: { … },                   per-built-in state-assignment DIFF
-//     custom: { palette, grids } }            我的创作
+//     custom: { palette, actions, states } }  我的创作
+//
+// v9 is the PAIRED model: ONE action library with both faces inside each action
+// (`cells[32]` required, `cells[128]` optional) and ONE state assignment — so
+// the dock and the popup physically cannot play different animations.  The
+// built-in sidecar diff lost its per-crop level with the same flip.
 //
 // The built-in artwork is NOT stored — it is generated data, loaded as its own
-// chunk.
+// chunk (still baked in the v8 shape, upgraded through the one door at install
+// time).
 //
 // ── why the write policy exists ──
 //
 // The custom document is BIG: the seeded built-in library is ~15 MB of JSON
-// once both crops are materialised.  The studio writes on every painted pixel,
+// once both faces are materialised.  The studio writes on every painted pixel,
 // and the old store serialized the whole document, handed it to localStorage
 // and then re-parsed it — ~95 ms of blocking work per pixel, which is exactly
 // what made drag-painting crawl.
@@ -40,14 +46,14 @@
 //     the old immediate write produced, over a window of at most one burst.
 
 import { builtinArtwork, DEFAULT_SKIN } from './built-ins.ts';
-import { convertArtwork } from './convert.ts';
+import { upgradeArtwork } from './compose.ts';
 import type { Artwork } from './compose.ts';
 
 export type CustomArtwork = Artwork;
 
-/** Schema version of the persisted JSON: v8 is the ACTION LIBRARY model (a
- * library of animations per crop + the ids each state plays). */
-export const STORE_VERSION = 8;
+/** Schema version of the persisted JSON: v9 is the PAIRED model (one action
+ *  library carrying both faces, one state assignment). */
+export const STORE_VERSION = 9;
 
 export const STORE_KEY = 'status-pet:skin';
 export const SKIN_EVENT = 'status-pet:skin-changed';
@@ -68,6 +74,7 @@ export interface StoredData {
   skin?: string;
   brushes?: string[];
   custom?: CustomArtwork;
+  builtinStates?: Record<string, Record<string, string[]>>;
   [key: string]: unknown;
 }
 
@@ -120,7 +127,7 @@ function parseRaw(raw: string | null): StoredData {
 }
 
 /** The current store document.  Memoized: identical storage gives the
- *  identical object (the parse and the v7 upgrade are not repeated), while a
+ *  identical object (the parse and the upgrade are not repeated), while a
  *  write — ours, or another tab's — is always noticed. */
 export function loadStored(): StoredData {
   if (dirty && state) return state;
@@ -157,15 +164,14 @@ function estimateBytes(st: StoredData): number {
   const hit = SIZE_CACHE.get(c);
   if (hit !== undefined) return hit;
   let n = 0;
-  const grids = c.grids;
-  for (const key of Object.keys(grids)) {
-    const g = grids[Number(key)];
-    if (!g) continue;
-    for (const t of g.library) {
-      n += 48;
-      for (const f of t.frames) {
-        for (const r of f.rows) n += r.length + 4;
-        if (f.prop) for (const r of f.prop.rows) n += r.length + 4;
+  for (const action of c.actions || []) {
+    n += 48;
+    for (const f of action.frames || []) {
+      for (const key of Object.keys(f.cells || {})) {
+        const cell = f.cells[Number(key)];
+        if (!cell) continue;
+        for (const r of cell.rows) n += r.length + 4;
+        if (cell.prop) for (const r of cell.prop.rows) n += r.length + 4;
       }
     }
   }
@@ -267,19 +273,46 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
 
 // ── version handling ──
 //
-// The artwork is upgraded, not dropped, from v7: a pre-v8 payload (a state
-// owning its own takes) converts to the library model losslessly, and it is
-// the shape an older document in the wild actually has — refusing it would
+// The artwork is upgraded, not dropped, from v7 and v8: both older shapes are
+// mechanically convertible through `upgradeArtwork` (v7's state-owned takes →
+// a library; v8's two per-crop libraries → one paired library), and they are
+// the shapes an older document in the wild actually has — refusing them would
 // throw away the user's drawing for no reason.  A payload from a NEWER version
 // is dropped (its artwork may mean anything), and so is anything older than
 // v7, whose pixel format and grids the studio would not understand.  The skin
 // CHOICE and the PAINT BOX are version-independent and always survive.
 
+/** v8 kept one assignment DIFF per crop (`{ '32': {…}, '128': {…} }`); v9 has
+ *  one assignment, so the avatar's diff is the one that survives (it is the
+ *  face that is always required, and the one the dock shows).  A diff that only
+ *  ever existed for the body is kept rather than thrown away. */
+function flattenBuiltinStates(
+  raw: unknown,
+): Record<string, Record<string, string[]>> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Record<string, Record<string, string[]>> = {};
+  for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const v = value as Record<string, unknown>;
+    const perCrop = '32' in v || '128' in v;
+    const picked = perCrop ? (v['32'] ?? v['128']) : v;
+    if (!picked || typeof picked !== 'object' || Array.isArray(picked)) continue;
+    out[name] = picked as Record<string, string[]>;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 function migrate(d: StoredData): StoredData {
   if (d.v === STORE_VERSION) return d;
-  const { custom, colors, ...rest } = d;
+  const { custom, colors, builtinStates, ...rest } = d;
   void colors;
-  const future = typeof d.v === 'number' && d.v > STORE_VERSION;
-  const art = future ? null : convertArtwork(custom);
-  return art ? { ...rest, v: STORE_VERSION, custom: art } : { ...rest, v: STORE_VERSION };
+  const out: StoredData = { ...rest, v: STORE_VERSION };
+  const states = flattenBuiltinStates(builtinStates);
+  if (states) out.builtinStates = states;
+  // A document from a NEWER version is dropped; an older one goes through the
+  // one upgrade door (which passes a v9-shaped document straight back).
+  if (typeof d.v === 'number' && d.v > STORE_VERSION) return out;
+  const art = upgradeArtwork(custom);
+  if (art) out.custom = art;
+  return out;
 }

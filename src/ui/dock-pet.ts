@@ -54,7 +54,11 @@ export function DockPet(props: DockPetProps | null) {
     // is the size it always was, on top of the finer artwork.  Big artwork
     // lives in the click popup.  The loop reads the active skin per frame, so
     // a skin swap refreshes the dock pet with no re-render and no subscription.
-    return startLoop(canvas, faceRef, reducedRef, () => 1, undefined, undefined, LIVE_ZOOM);
+    //
+    // It is also the LEADER of the take channel: whatever take and phase the
+    // dock is playing is what the popup mirrors (see loop.ts), so opening the
+    // peek shows the animation the pet is actually doing, not a second roll.
+    return startLoop(canvas, faceRef, reducedRef, () => 1, undefined, undefined, LIVE_ZOOM, 'lead');
   }, []);
 
   // The popup: the same mechanism as the host's "context used" meter —
@@ -152,7 +156,7 @@ export function DockPet(props: DockPetProps | null) {
     h('style', null, CSS),
     anchor,
     open && POPUP_OK && createPortal
-      ? createPortal(h(DockPopup, { panelRef, position, title, t }), document.body as unknown as Element)
+      ? createPortal(h(DockPopup, { panelRef, position, title, state, t }), document.body as unknown as Element)
       : null
   );
 }

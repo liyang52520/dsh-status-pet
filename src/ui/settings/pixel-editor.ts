@@ -9,6 +9,30 @@
 // whole point: one dropdown decides what is drawn, the other decides what is
 // ticked, and neither can be mistaken for the other.
 //
+// ── the PAIRED model (v9) ──
+//
+// An action is ONE animation with TWO FACES: `cells[32]` (the dock avatar,
+// required) and `cells[128]` (the full body, optional — a body-less face is
+// rendered as the avatar at an exact 4× upscale, which is why the popup still
+// shows something sensible).  The crop switch on the page's tab row therefore
+// means "which FACE of THIS ACTION am I drawing", NOT "which library":
+//
+//   * frame count, `ms`, the per-frame `ms` and 整幅挪动 are SINGLE SOURCE —
+//     there is no way to draw four frames for the head and five for the body,
+//     and no way for the two faces to drift apart;
+//   * 整幅挪动 is authored in AVATAR units and rendered ×4 on the body, so one
+//     press is the same hop on both faces (that is what the 128 headroom is
+//     for);
+//   * 复制一帧 / 空白帧 / 删除帧 act on the ACTION, so both faces stay in step;
+//   * 导入 replaces the whole action — both faces, its pace and its name —
+//     because an action is one thing and its frame count cannot come from two
+//     sources.
+//
+// The body face is optional: the 128 board shows an empty-state card offering a
+// 4× draft drawn from the avatar, a blank grid, or the same draft for every
+// action at once, and a body-carrying action can give its 128 face up again
+// (the popup falls back to the 4× upscale).
+//
 // THE LIBRARY MODEL still shapes this file: an ACTION belongs to the artwork,
 // not to a state, so this editor edits a shared definition —
 //
@@ -28,15 +52,12 @@
 // The studio FOLLOWS the skin picker: it shows the ACTIVE skin's artwork.
 // Built-ins are fully baked; the first stroke forks to 我的创作 automatically.
 // Selecting another skin reloads the whole studio.
-//
-// Progressive disclosure: with only the built-in library imported there is no
-// frame UI until an action exists, and the rename field only shows with a
-// selected action.
 
 import { React, h } from '../../host-deps.ts';
-import { GRIDS, AVATAR_GRID, BODY_GRID, BODY_FALLBACK_SCALE } from '../../pet/grids.ts';
+import { GRIDS, AVATAR_GRID, BODY_GRID } from '../../pet/grids.ts';
 import { BUILTIN_NAMES, DEFAULT_SKIN, builtinArtwork } from '../../pet/skins/built-ins.ts';
 import {
+  actionsOf,
   activeSkin,
   onSkinChange,
   saveStored,
@@ -49,23 +70,28 @@ import {
   blankRows,
   findOrAdd,
   adoptRows,
-  upscalePixels,
+  cellFor,
+  upscaleCell,
   hexPixel,
   pixelAt,
   usedBy,
+  hasActionBody,
   overwriteLibraryTake,
   setStateSelection,
   addLibraryTake,
   removeLibraryTake,
   renameLibraryTake,
   replaceLibraryTake,
-  gridArtwork,
+  replaceFrameCell,
+  dropFrameCell,
   TRANSPARENT,
   MAX_LIBRARY,
   MAX_FRAMES,
   DEFAULT_FRAME_MS,
 } from '../../pet/skins/store.ts';
-import type { CustomArtwork, Frame, LibraryTake } from '../../pet/skins/store.ts';
+import type {
+  Action, ActionFrame, CustomArtwork, FrameCells, PropArt,
+} from '../../pet/skins/store.ts';
 import { PetPreview } from '../pet-preview.ts';
 import { FrameCanvas, ROW_THUMB_CSS, THUMB_CSS } from './frame-canvas.ts';
 import { field } from './field.ts';
@@ -80,22 +106,89 @@ interface Studio {
   frame: number;
 }
 
-type Clip = { kind: 'frame'; grid: GridKey; frame: Frame };
+/** A face as the board and the thumbnails want it: rows plus an optional
+ *  accent.  The same shape a v9 `Cell` has. */
+type Face = { rows: string[]; prop?: PropArt };
 
 // The frame clipboard is its own thing: a frame copied from one action and
-// pasted into another (or the same one, later).
-let clipboard: Clip | null = null;
+// pasted into another (or the same one, later).  A frame carries BOTH faces, so
+// the clipboard is crop-independent — pasting into a body-carrying action gives
+// the pasted frame a 128 face too (see fitFrame).
+let clipboard: ActionFrame | null = null;
 
-function blankFrame(grid: GridKey): Frame {
+function blankFace(grid: number): Face {
   return { rows: blankRows(grid) };
 }
 
-function cloneFrame(f: Frame): Frame {
-  return { rows: f.rows.slice(), dx: f.dx, dy: f.dy, ms: f.ms };
+function cloneFace(face: Face): Face {
+  return {
+    rows: face.rows.slice(),
+    prop: face.prop ? { x: face.prop.x, y: face.prop.y, rows: face.prop.rows.slice() } : undefined,
+  };
+}
+
+/** The 4× body draft of an avatar face — `upscaleCell`, spelled for this
+ *  file's vocabulary (the same picture the popup shows while the action has no
+ *  body artwork of its own). */
+function upscaleFace(face: Face): Face {
+  return upscaleCell(face);
+}
+
+/** One frame with, at least, its avatar face — and a body face when the action
+ *  carries one, so a new frame never lands half-bodied inside a full-bodied
+ *  action. */
+function blankFrame(body: boolean): ActionFrame {
+  const cells: FrameCells = { [AVATAR_GRID]: blankFace(AVATAR_GRID) };
+  if (body) cells[BODY_GRID] = blankFace(BODY_GRID);
+  return { cells };
+}
+
+function cloneFrame(f: ActionFrame): ActionFrame {
+  const cells: FrameCells = { [AVATAR_GRID]: cloneFace(f.cells[AVATAR_GRID]) };
+  for (const key of Object.keys(f.cells)) {
+    const g = Number(key);
+    if (g === AVATAR_GRID) continue;
+    const face = f.cells[g];
+    if (face) cells[g] = cloneFace(face);
+  }
+  const out: ActionFrame = { cells };
+  if (f.ms !== undefined) out.ms = f.ms;
+  if (f.dx) out.dx = f.dx;
+  if (f.dy) out.dy = f.dy;
+  return out;
+}
+
+/** Give a frame the body face an action needs, by 4×-upscaling its avatar
+ *  face.  Used by 粘贴 and by the draft buttons: within one ACTION the body is
+ *  all-or-nothing. */
+function fitFrame(f: ActionFrame, body: boolean): ActionFrame {
+  if (!body || f.cells[BODY_GRID]) return f;
+  const avatar = f.cells[AVATAR_GRID];
+  if (!avatar) return f;
+  return { ...f, cells: { ...f.cells, [BODY_GRID]: upscaleFace(avatar) } };
+}
+
+/** The face to DRAW for a frame at `grid` — `cellFor`, which is the ONE
+ *  definition of "the authored cell, else the avatar's 4× draft" the renderer
+ *  and the galleries use too. */
+function faceFor(f: ActionFrame, grid: number): Face {
+  return cellFor(f, grid);
+}
+
+/** The same frames with a materialised (or emptied) body face — the 128 draft
+ *  and the blank body, per action. */
+function withBodyFace(action: Action, mode: 'draft' | 'blank'): ActionFrame[] {
+  return action.frames.map((f) => ({
+    ...f,
+    cells: {
+      ...f.cells,
+      [BODY_GRID]: mode === 'draft' ? upscaleFace(f.cells[AVATAR_GRID]) : blankFace(BODY_GRID),
+    },
+  }));
 }
 
 // The artwork for a skin name: the stored custom document, or the built-in
-// skin baked into the same shape.
+// skin baked into the same (paired) shape.
 function artworkFor(name: string): CustomArtwork {
   if (name === 'custom') {
     return loadCustomArtwork() || seedArtworkFrom(DEFAULT_SKIN);
@@ -103,38 +196,41 @@ function artworkFor(name: string): CustomArtwork {
   return seedArtworkFrom(BUILTIN_NAMES.includes(name) ? name : DEFAULT_SKIN);
 }
 
-/** Open the studio on the crop the page picked, with `target` on the board when
- * it exists there (a jump from 预览 · 按动作), else that crop's first action. */
-function loadStudio(grid: GridKey, target?: string): Studio {
+/** Open the studio with `target` on the board when it exists (a jump from
+ *  预览 · 按动作), else the first action.  The crop is NOT part of the studio's
+ *  state any more: it only decides which FACE of the selected action is drawn,
+ *  so switching it never switches the action. */
+function loadStudio(target?: string): Studio {
   const name = activeSkin().name;
   const art = artworkFor(name);
-  const library = gridArtwork(art, grid).library;
+  const library = actionsOf(art);
   const wanted = target && library.some((a) => a.id === target) ? target : '';
   return { skinName: name, art, actionId: wanted || (library[0] ? library[0].id : ''), frame: 0 };
 }
 
-function FrameThumb(props: { frame: Frame; palette: string[]; grid: GridKey; active: boolean; label: string; onClick: () => void }) {
+function FrameThumb(props: { face: Face; palette: string[]; grid: GridKey; active: boolean; label: string; onClick: () => void }) {
   return h('button', {
     type: 'button',
     className: 'status-pet-frame-thumb' + (props.active ? ' active' : ''),
     'aria-pressed': props.active ? 'true' : 'false',
     'aria-label': props.label,
     onClick: props.onClick,
-  }, h(FrameCanvas, { frame: props.frame, palette: props.palette, grid: props.grid, css: THUMB_CSS }));
+  }, h(FrameCanvas, { frame: props.face, palette: props.palette, grid: props.grid, css: THUMB_CSS }));
 }
 
 export function PixelEditor(props: {
   t: (key: string, params?: Record<string, unknown>) => string;
-  /** Which crop the studio edits.  Owned by the page's tab row, so 预览 and
-   * 编辑 always agree on the crop being looked at / drawn on. */
+  /** Which FACE the studio draws.  Owned by the page's tab row, so 预览 and
+   * 编辑 always agree on the face being looked at / drawn on.  Both faces
+   * belong to the SAME action (one library, one frame list). */
   grid?: GridKey;
   /** The action to put on the board when the studio mounts — a jump from
-   * 预览 · 按动作.  Absent (the ordinary way in) means the crop's first action. */
+   * 预览 · 按动作.  Absent (the ordinary way in) means the first action. */
   actionId?: string;
 }) {
   const t = props.t;
   const grid: GridKey = props.grid === BODY_GRID ? BODY_GRID : AVATAR_GRID;
-  const [studio, setStudio] = React.useState<Studio>(() => loadStudio(grid, props.actionId));
+  const [studio, setStudio] = React.useState<Studio>(() => loadStudio(props.actionId));
   // The paint box: six free colour wells, persisted.  They are brushes, not
   // palette slots — what a brush paints with is fixed into the pixels.
   const [brushes, setBrushes] = React.useState(() => loadBrushes());
@@ -159,7 +255,7 @@ export function PixelEditor(props: {
   // (a fork writes custom synchronously, then the event fires).
   const skinNameRef = React.useRef(studio.skinName);
   // ── The board's cell cache ──
-  // The board is grid×grid cells — 16,384 of them at the 128px crop — and a
+  // The board is grid×grid cells — 16,384 of them at the 128px face — and a
   // stroke replaces exactly ONE row's pixels: `paintCell` keeps every other row
   // string BY IDENTITY.  Caching each row's built cells is therefore what keeps
   // drag-painting cheap at that size (React sees the same element object and
@@ -181,14 +277,14 @@ export function PixelEditor(props: {
       const name = activeSkin().name;
       if (name === skinNameRef.current) return; // our own commit
       const fresh = artworkFor(name);
-      const first = gridArtwork(fresh, grid).library[0];
+      const first = actionsOf(fresh)[0];
       skinNameRef.current = name;
       artRef.current = fresh;
       undoRef.current = [];
       redoRef.current = [];
       setStudio({ skinName: name, art: fresh, actionId: first ? first.id : '', frame: 0 });
     });
-  }, [grid]);
+  }, []);
 
   // A jump from 预览 · 按动作 arrives as a prop while the studio may already be
   // mounted (the mode switch keeps it alive).  Selecting the target must not
@@ -196,16 +292,15 @@ export function PixelEditor(props: {
   React.useEffect(() => {
     const want = props.actionId;
     if (!want || want === studio.actionId) return;
-    if (!gridArtwork(artRef.current, grid).library.some((a) => a.id === want)) return;
+    if (!actionsOf(artRef.current).some((a) => a.id === want)) return;
     setStudio({ ...studio, actionId: want, frame: 0 });
   }, [props.actionId]);
 
   const art = studio.art;
   const isCustom = studio.skinName === 'custom';
-  const gridArt = gridArtwork(art, grid);
-  const library = gridArt.library;
-  // The selection SELF-HEALS: switching crop, deleting the selected action or
-  // importing a library must never leave the board pointing at nothing.
+  const library = actionsOf(art);
+  // The selection SELF-HEALS: deleting the selected action or importing a
+  // library must never leave the board pointing at nothing.
   const selectedId = library.some((a) => a.id === studio.actionId)
     ? studio.actionId
     : (library[0] ? library[0].id : '');
@@ -213,9 +308,17 @@ export function PixelEditor(props: {
   const frames = action ? action.frames : [];
   const frameIdx = Math.min(studio.frame, Math.max(0, frames.length - 1));
   const frame = frames[frameIdx];
-  const actionUses = action ? usedBy(art, grid, action.id) : [];
-  const spec = GRIDS[grid];
-  const bodyEmpty = !art.grids[BODY_GRID];
+  const actionUses = action ? usedBy(art, action.id) : [];
+  const spec = GRIDS[AVATAR_GRID];
+  const hasBody = !!action && hasActionBody(action);
+  // The 128 board is EMPTY when this frame carries no body face: the action is
+  // body-less (the normal case — the popup shows the 4× draft) or this one
+  // frame is (a hand-written document), and either way the honest thing to show
+  // is the card that can create one.
+  const faceGap = grid === BODY_GRID && !!action && !(frame && frame.cells[BODY_GRID]);
+  const shownFace = frame ? faceFor(frame, grid) : blankFace(grid);
+  // 整幅挪动 is authored in AVATAR units (the body renders ×4), so the avatar's
+  // headroom is the one ceiling on both boards.
   const offX = frame ? frame.dx || 0 : 0;
   const offY = frame ? frame.dy || 0 : 0;
   const moved = offX !== 0 || offY !== 0;
@@ -226,17 +329,16 @@ export function PixelEditor(props: {
         + (offX < 0 ? '←' + -offX : offX > 0 ? '→' + offX : '');
   const actionLabel = (a: { id: string; name?: string }, i: number) =>
     a.name || t('settings.actionN', { n: i + 1 });
-  // One option per action: its name, how long its loop is, and who plays it —
-  // the sharing read-out, so the compact dropdown still warns what an edit (or
-  // a delete) reaches.
-  const actionOption = (a: (typeof library)[number], i: number) => {
-    const used = usedBy(art, grid, a.id);
-    return actionLabel(a, i)
+  // One option per action: its name, how long its loop is, whether it carries a
+  // body face, and who plays it — the sharing read-out, so the compact dropdown
+  // still warns what an edit (or a delete) reaches.
+  const actionOption = (a: Action, i: number) =>
+    actionLabel(a, i)
       + ' · ' + t('settings.actionFrames', { n: a.frames.length })
-      + ' · ' + (used.length
-        ? t('settings.usedByN', { n: used.length })
+      + (hasActionBody(a) ? '' : ' · ' + t('settings.noBody'))
+      + ' · ' + (usedBy(art, a.id).length
+        ? t('settings.usedByN', { n: usedBy(art, a.id).length })
         : t('settings.unusedAction'));
-  };
 
   function commit(nextArt: CustomArtwork, patch?: Partial<Studio>) {
     undoRef.current.push(artRef.current);
@@ -273,12 +375,12 @@ export function PixelEditor(props: {
   // repeated clicks and drag strokes never read stale data).
   function current() {
     const cur = artRef.current;
-    const g = gridArtwork(cur, grid);
-    const id = g.library.some((a) => a.id === studio.actionId)
+    const list = actionsOf(cur);
+    const id = list.some((a) => a.id === studio.actionId)
       ? studio.actionId
-      : (g.library[0] ? g.library[0].id : '');
-    const act = g.library.find((a) => a.id === id) || null;
-    return { cur, g, id, action: act, frames: act ? act.frames : [] };
+      : (list[0] ? list[0].id : '');
+    const act = list.find((a) => a.id === id) || null;
+    return { cur, id, action: act, frames: act ? act.frames : [] };
   }
 
   // ── the library ──
@@ -288,49 +390,53 @@ export function PixelEditor(props: {
   }
 
   /** A fresh, empty action.  `unique` matters: an identical blank already in
-   * the library would otherwise be shared by the dedupe, and the button would
-   * look broken the second time it is pressed. */
+   *  the library would otherwise be shared by the dedupe, and the button would
+   *  look broken the second time it is pressed.  A new action gets a body face
+   *  only when the artwork already carries bodies, so it matches the character
+   *  it is joining. */
   function newAction() {
-    const { cur, g } = current();
-    if (g.library.length >= MAX_LIBRARY) return;
-    const res = addLibraryTake(cur, grid, { frameMs: DEFAULT_FRAME_MS, frames: [blankFrame(grid)] },
+    const { cur, action: act } = current();
+    const list = actionsOf(cur);
+    if (list.length >= MAX_LIBRARY) return;
+    const body = !!act && hasActionBody(act);
+    const res = addLibraryTake(cur, { id: '', frameMs: DEFAULT_FRAME_MS, frames: [blankFrame(body)] },
       { unique: true });
-    let next = res.art;
-    // A library always needs the avatar grid's idle assignment to be valid, so
-    // the very first action in an empty library becomes the idle one.
-    if (!g.library.length && grid === AVATAR_GRID) next = setStateSelection(next, grid, 'idle', [res.id]);
+    // A library always needs an idle assignment to be valid, so the very first
+    // action in an empty library becomes the idle one.
+    const next = list.length ? res.art : setStateSelection(res.art, 'idle', [res.id]);
     commit(next, { actionId: res.id, frame: 0 });
   }
 
-  /** Deleting is refused when it would leave the crop without an idle action:
-   * `validateArtwork` requires one, and a document that fails validation is
-   * dropped on the next read — losing the whole drawing to a stray click. */
+  /** Deleting is refused when it would leave the artwork without an idle
+   *  action: `validateArtwork` requires one, and a document that fails
+   *  validation is dropped on the next read — losing the whole drawing to a
+   *  stray click. */
   function canDeleteAction(): boolean {
-    const { g, id } = current();
-    if (g.library.length <= 1) return false;
-    const idle = g.states.idle || [];
+    const { cur, id } = current();
+    if (actionsOf(cur).length <= 1) return false;
+    const idle = cur.states.idle || [];
     return !(idle.length <= 1 && idle.includes(id));
   }
 
   function deleteAction() {
     const { cur, id } = current();
     if (!canDeleteAction()) return;
-    const next = removeLibraryTake(cur, grid, id);
-    const first = gridArtwork(next, grid).library[0];
+    const next = removeLibraryTake(cur, id);
+    const first = actionsOf(next)[0];
     commit(next, { actionId: first ? first.id : '', frame: 0 });
   }
 
   /** Renaming is deliberately NOT an undo step: typing a name would otherwise
-   * flood the 50-deep history with one entry per keystroke.  The field is
-   * UNCONTROLLED and commits on blur/Enter for the same reason — a commit
-   * serialises the whole artwork (up to ~15MB once the built-in library is
-   * imported), which is far too much work to do per character.  Its `key` is
-   * the selected id, so choosing another action remounts it with that action's
-   * name instead of leaving the previous one on screen. */
+   *  flood the 50-deep history with one entry per keystroke.  The field is
+   *  UNCONTROLLED and commits on blur/Enter for the same reason — a commit
+   *  serialises the whole artwork (up to ~15MB once the built-in library is
+   *  imported), which is far too much work to do per character.  Its `key` is
+   *  the selected id, so choosing another action remounts it with that action's
+   *  name instead of leaving the previous one on screen. */
   function renameAction(name: string) {
     const { cur, id } = current();
     if (!id) return;
-    const next = renameLibraryTake(cur, grid, id, name);
+    const next = renameLibraryTake(cur, id, name);
     artRef.current = next;
     skinNameRef.current = 'custom';
     saveStored({ skin: 'custom', custom: next });
@@ -338,31 +444,47 @@ export function PixelEditor(props: {
   }
 
   /** 导入: overwrite the action being edited with a chosen one — a built-in
-   * animation, or one of this artwork's OWN actions at this crop (the two crops
-   * are isolated: a 128px frame is not a 32px frame).
+   *  animation, or one of this artwork's OWN actions.
    *
-   * The ID stays, so every state that plays this action keeps playing it; only
-   * the content changes.  That is what makes 导入 the natural way to fill a
-   * slot: 新建动作 → 导入 → draw.  The source's colours are re-pointed at THIS
-   * artwork's palette (`adoptRows`), because a built-in's slot 7 is not this
-   * document's slot 7; one 撤销 brings the previous drawing back. */
-  function importAction(source: LibraryTake, srcArt: CustomArtwork, label: string) {
+   *  The ID stays, so every state that plays this action keeps playing it; only
+   *  the content changes.  That is what makes 导入 the natural way to fill a
+   *  slot: 新建动作 → 导入 → draw.  An action is ONE thing, so BOTH FACES come
+   *  along, together with its frame count, pace and name — importing a built-in
+   *  body into an action that had none is exactly how a full-bodied action is
+   *  born.  The source's colours are re-pointed at THIS artwork's palette
+   *  (`adoptRows`), because a built-in's slot 7 is not this document's slot 7;
+   *  one 撤销 brings the previous drawing back. */
+  function importAction(source: Action, srcArt: CustomArtwork, label: string) {
     const { cur, id, action: act } = current();
     if (!act || !id) return;
     let palette = cur.palette;
+    const adoptFace = (face: Face): Face => {
+      const adopted = adoptRows(face.rows, srcArt.palette, palette);
+      palette = adopted.palette;
+      let prop: PropArt | undefined;
+      if (face.prop) {
+        const p = adoptRows(face.prop.rows, srcArt.palette, palette);
+        palette = p.palette;
+        prop = { ...face.prop, rows: p.rows };
+      }
+      return prop ? { rows: adopted.rows, prop } : { rows: adopted.rows };
+    };
     const frames = source.frames.map((f) => {
-      const body = adoptRows(f.rows, srcArt.palette, palette);
-      palette = body.palette;
-      const prop = f.prop ? adoptRows(f.prop.rows, srcArt.palette, palette) : null;
-      if (prop) palette = prop.palette;
-      return {
-        ...f,
-        rows: body.rows,
-        prop: prop && f.prop ? { ...f.prop, rows: prop.rows } : undefined,
-      };
+      const cells: FrameCells = { [AVATAR_GRID]: adoptFace(f.cells[AVATAR_GRID]) };
+      for (const key of Object.keys(f.cells)) {
+        const g = Number(key);
+        if (g === AVATAR_GRID) continue;
+        const face = f.cells[g];
+        if (face) cells[g] = adoptFace(face);
+      }
+      const out: ActionFrame = { cells };
+      if (f.ms !== undefined) out.ms = f.ms;
+      if (f.dx) out.dx = f.dx;
+      if (f.dy) out.dy = f.dy;
+      return out;
     });
     commit(
-      overwriteLibraryTake({ ...cur, palette }, grid, id, {
+      overwriteLibraryTake({ ...cur, palette }, id, {
         frameMs: source.frameMs,
         frames,
         name: source.name,
@@ -373,60 +495,63 @@ export function PixelEditor(props: {
     setNotice(t('settings.importedOne', { name: label }));
   }
 
+  // ── the body face (per action) ──
+
   function generateBodyDraft() {
-    const src = gridArtwork(art, AVATAR_GRID);
-    if (!src.library.length) return;
-    // Ids carry over, so switching the crop switch keeps editing the same
-    // action — the two crops are one character.
-    const libraryNext = src.library.map((t2) => ({
-      id: t2.id,
-      name: t2.name,
-      origin: t2.origin,
-      frameMs: t2.frameMs,
-      frames: t2.frames.map((f) => ({
-        rows: upscalePixels(f.rows, BODY_FALLBACK_SCALE),
-        dx: f.dx === undefined ? undefined : f.dx * BODY_FALLBACK_SCALE,
-        dy: f.dy === undefined ? undefined : f.dy * BODY_FALLBACK_SCALE,
-        ms: f.ms,
-      })),
-    }));
-    const states: Record<string, string[]> = {};
-    for (const name of Object.keys(src.states)) states[name] = src.states[name].slice();
-    commit({ ...art, grids: { ...art.grids, [BODY_GRID]: { library: libraryNext, states } } });
+    const { cur, id, action: act } = current();
+    if (!act || !id) return;
+    commit(replaceLibraryTake(cur, id, { frameMs: act.frameMs, frames: withBodyFace(act, 'draft') }));
   }
 
   function blankBody() {
-    commit({
-      ...art,
-      grids: {
-        ...art.grids,
-        [BODY_GRID]: {
-          library: [{ id: 'blank', frameMs: DEFAULT_FRAME_MS, frames: [blankFrame(BODY_GRID)] }],
-          states: { idle: ['blank'] },
-        },
-      },
-    });
+    const { cur, id, action: act } = current();
+    if (!act || !id) return;
+    commit(replaceLibraryTake(cur, id, { frameMs: act.frameMs, frames: withBodyFace(act, 'blank') }));
+  }
+
+  /** …or the same draft for EVERY action, which is what a user with a drawn
+   *  avatar library actually wants before touching the body. */
+  function generateAllBodies() {
+    const { cur } = current();
+    let next = cur;
+    for (const a of actionsOf(cur)) {
+      if (!hasActionBody(a)) next = replaceLibraryTake(next, a.id, { frameMs: a.frameMs, frames: withBodyFace(a, 'draft') });
+    }
+    commit(next);
+    setNotice(t('settings.genBodyAllDone'));
+  }
+
+  /** Give this action's 128 face up again: the popup goes back to the avatar at
+   *  4×, and nothing else about the action changes. */
+  function removeBody() {
+    const { cur, id, action: act } = current();
+    if (!act || !id) return;
+    let next = cur;
+    for (let i = 0; i < act.frames.length; i++) next = dropFrameCell(next, id, i, BODY_GRID);
+    commit(next);
   }
 
   // ── frames ──
 
-  function withFrames(nextFrames: Frame[], patch?: Partial<Studio>) {
+  function withFrames(nextFrames: ActionFrame[], patch?: Partial<Studio>) {
     const { cur, id, action: act } = current();
     if (!act || !id) return;
-    commit(replaceLibraryTake(cur, grid, id, { frameMs: act.frameMs, frames: nextFrames }), patch);
+    commit(replaceLibraryTake(cur, id, { frameMs: act.frameMs, frames: nextFrames }), patch);
   }
 
   function addBlankFrame() {
-    const { frames: curFrames } = current();
+    const { frames: curFrames, action: act } = current();
     if (curFrames.length >= MAX_FRAMES) return;
-    withFrames(curFrames.slice(0, frameIdx + 1).concat([blankFrame(grid)], curFrames.slice(frameIdx + 1)),
+    const body = !!act && hasActionBody(act);
+    withFrames(curFrames.slice(0, frameIdx + 1).concat([blankFrame(body)], curFrames.slice(frameIdx + 1)),
       { frame: frameIdx + 1 });
   }
 
   function addFrame() {
-    const { frames: curFrames } = current();
+    const { frames: curFrames, action: act } = current();
     if (curFrames.length >= MAX_FRAMES) return;
-    const f = curFrames[Math.min(frameIdx, curFrames.length - 1)];
+    const body = !!act && hasActionBody(act);
+    const f = fitFrame(curFrames[Math.min(frameIdx, curFrames.length - 1)], body);
     withFrames(curFrames.slice(0, frameIdx + 1).concat([cloneFrame(f)], curFrames.slice(frameIdx + 1)),
       { frame: frameIdx + 1 });
   }
@@ -447,8 +572,9 @@ export function PixelEditor(props: {
     withFrames(next, { frame: j });
   }
 
-  // 整幅挪动 — move this whole frame as one, one grid cell per press.  Not a
-  // redraw: the pixels are untouched, which is what makes a bob easy.
+  // 整幅挪动 — move this whole frame as one, one AVATAR cell per press (the
+  // body renders ×4, so the two faces hop together).  Not a redraw: the pixels
+  // are untouched, which is what makes a bob easy.
   function setOffset(axis: 'dx' | 'dy', v: number) {
     const clamped = Math.max(-spec.maxOffset, Math.min(spec.maxOffset, Math.round(v) || 0));
     const { frames: curFrames } = current();
@@ -469,10 +595,14 @@ export function PixelEditor(props: {
 
   // An accent imported with a built-in action rides OVER the body: it is not
   // part of the board (the studio paints `rows`), so the only honest thing the
-  // studio can do with one is say it exists and drop it.
+  // studio can do with one is say it exists and drop it — from the FACE whose
+  // frame carries it.
   function clearProp() {
-    const { frames: curFrames } = current();
-    withFrames(curFrames.map((f, i) => (i === frameIdx ? { ...f, prop: undefined } : f)));
+    const { cur, id, frames: curFrames } = current();
+    const f = curFrames[frameIdx];
+    const base = f && f.cells[grid];
+    if (!f || !id || !base) return;
+    commit(replaceFrameCell(cur, id, frameIdx, grid, { rows: base.rows }));
   }
 
   function setFrameMs(v: number) {
@@ -485,22 +615,25 @@ export function PixelEditor(props: {
     if (!Number.isFinite(v) || v <= 0) return;
     const { cur, id, action: act, frames: curFrames } = current();
     if (!act || !id) return;
-    commit(replaceLibraryTake(cur, grid, id, { frameMs: v, frames: curFrames }));
+    commit(replaceLibraryTake(cur, id, { frameMs: v, frames: curFrames }));
   }
 
   // ── clipboard (frames) ──
 
   function copyFrame() {
-    clipboard = { kind: 'frame', grid, frame: cloneFrame(current().frames[frameIdx]) };
+    const { frames: curFrames } = current();
+    if (!curFrames[frameIdx]) return;
+    clipboard = cloneFrame(curFrames[frameIdx]);
     setClipTick((v) => v + 1);
   }
 
   function paste() {
-    if (!clipboard || clipboard.grid !== grid) return;
-    if (clipboard.kind !== 'frame') return;
-    const { frames: curFrames } = current();
+    if (!clipboard) return;
+    const { frames: curFrames, action: act } = current();
     if (curFrames.length >= MAX_FRAMES) return;
-    withFrames(curFrames.slice(0, frameIdx + 1).concat([cloneFrame(clipboard.frame)], curFrames.slice(frameIdx + 1)),
+    const body = !!act && hasActionBody(act);
+    const f = fitFrame(clipboard, body);
+    withFrames(curFrames.slice(0, frameIdx + 1).concat([cloneFrame(f)], curFrames.slice(frameIdx + 1)),
       { frame: frameIdx + 1 });
   }
 
@@ -513,6 +646,14 @@ export function PixelEditor(props: {
 
   function applyPaint(y: number, x: number) {
     const cur = artRef.current;
+    const { id, action: act, frames: curFrames } = current();
+    if (!act || !id) return;
+    const f = curFrames[frameIdx];
+    const base = f && f.cells[grid];
+    // A face that does not exist is never painted into: the board shows the
+    // empty-state card instead (see faceGap), so this is unreachable in the UI —
+    // but it must never mint a half face for a hand-written document.
+    if (!f || !base) return;
     let palette = cur.palette;
     let tok = TRANSPARENT;
     if (!erasing) {
@@ -520,17 +661,17 @@ export function PixelEditor(props: {
       palette = add.palette;
       tok = hexPixel(add.idx);
     }
-    const { id, action: act, frames: curFrames } = current();
-    if (!act || !id) return;
-    const nextFrames = curFrames.map((f, i) =>
-      i === frameIdx ? { ...f, rows: paintCell(f.rows, y, x, tok) } : f);
-    commit(replaceLibraryTake({ ...cur, palette }, grid, id, { frameMs: act.frameMs, frames: nextFrames }));
+    const next: Face = { rows: paintCell(base.rows, y, x, tok) };
+    if (base.prop) next.prop = base.prop;
+    commit(replaceFrameCell({ ...cur, palette }, id, frameIdx, grid, next));
   }
 
   // Eyedropper: the pixel's colour becomes the current brush's colour.
   function pickColour(y: number, x: number) {
-    if (!frame) return;
-    const tok = pixelAt(frame.rows[y], x);
+    const f = current().frames[frameIdx];
+    const base = f && f.cells[grid];
+    if (!base) return;
+    const tok = pixelAt(base.rows[y], x);
     if (tok === TRANSPARENT) { setErasing(true); return; }
     const colour = artRef.current.palette[parseInt(tok, 16)];
     if (colour) setBrush(brushIdx, colour);
@@ -567,7 +708,7 @@ export function PixelEditor(props: {
       setError(t('settings.importError'));
       return;
     }
-    const first = gridArtwork(res.data, grid).library[0];
+    const first = actionsOf(res.data)[0];
     commit(res.data, { actionId: first ? first.id : '', frame: 0 });
   }
 
@@ -583,8 +724,10 @@ export function PixelEditor(props: {
   // ── render ──
 
   const miniBtn = 'status-pet-mini-button';
-  const canPaste = clipboard && clipboard.grid === grid;
+  const canPaste = !!clipboard;
   const libraryFull = library.length >= MAX_LIBRARY;
+  const faceLabel = t('settings.grid.' + grid);
+  const faceProp = frame && frame.cells[grid] ? frame.cells[grid]!.prop : undefined;
 
   // Point the cache at THIS render's mutators, and drop it when the palette
   // array is replaced (a new colour, a seed, an import): a built cell's colour
@@ -636,17 +779,21 @@ export function PixelEditor(props: {
   }
 
   // The board (or the empty-body card) — a square that can only ever be as
-  // large as the column it lives in, so the 128×128 crop is always complete.
-  const board = grid === BODY_GRID && bodyEmpty
+  // large as the column it lives in, so the 128×128 face is always complete.
+  const board = faceGap
     ? h('div', { className: 'status-pet-empty-body' },
         h('div', null, t('settings.emptyBody')),
         h('div', { className: 'status-pet-colors' },
           h('button', { type: 'button', className: miniBtn, onClick: generateBodyDraft }, t('settings.genBody')),
           h('button', { type: 'button', className: miniBtn, onClick: blankBody }, t('settings.blankBody')),
+          h('button', {
+            type: 'button', className: miniBtn, onClick: generateAllBodies,
+            title: t('settings.genBodyAllHint'),
+          }, t('settings.genBodyAll')),
         ))
     : h('div', { className: 'status-pet-board-wrap' },
         h('div', { className: 'status-pet-grid' },
-          (frame ? frame.rows : blankRows(grid)).map((row, y) => boardRow(row, y))
+          shownFace.rows.map((row, y) => boardRow(row, y))
         ),
         !action
           ? h('div', { className: 'status-pet-takeover' },
@@ -654,23 +801,23 @@ export function PixelEditor(props: {
           : null
       );
 
-  // ── 导入 ── the picker.  Two sources, both at THIS crop: the built-in's
-  // library (whale-chan is the only built-in) and this artwork's OWN actions —
-  // the crops are isolated, so a 128px frame is never offered to a 32px board.
-  // A row is a button; clicking it overwrites the action being edited (see
-  // importAction).  Rows are thumbnails because pixel animations are recognised
-  // by eye, and 106 built-in actions need the search box above them.
+  // ── 导入 ── the picker.  Two sources — the built-in's library (whale-chan is
+  // the only built-in) and this artwork's OWN actions — and NEITHER is filtered
+  // by the current face, because an ACTION carries both of them: the thumbnail
+  // shows the face you are drawing, and picking a row replaces the whole action.
+  // A row is a button (see importAction).  Rows are thumbnails because pixel
+  // animations are recognised by eye, and 106 built-in actions need the search
+  // box above them.
   function importPanel() {
     const q = importQuery.trim().toLowerCase();
-    const matches = (a: LibraryTake, i: number) =>
+    const matches = (a: Action, i: number) =>
       !q || (actionLabel(a, i) + ' ' + a.origin + ' ' + a.id).toLowerCase().includes(q);
     const builtin = builtinArtwork(DEFAULT_SKIN) || null;
-    const builtinLibrary = builtin ? gridArtwork(builtin, grid).library : [];
     const groups = [
-      { key: 'builtin', label: t('settings.importSource.builtin'), src: builtin, list: builtinLibrary },
+      { key: 'builtin', label: t('settings.importSource.builtin'), src: builtin, list: builtin ? actionsOf(builtin) : [] },
       { key: 'mine', label: t('settings.importSource.mine'), src: art, list: library },
     ];
-    const row = (a: LibraryTake, src: CustomArtwork, index: number) => {
+    const row = (a: Action, src: CustomArtwork, index: number) => {
       const text = actionLabel(a, index);
       const current = src === art && !!action && a.id === action.id;
       return h('button', {
@@ -681,10 +828,11 @@ export function PixelEditor(props: {
         title: a.origin ? text + ' · ' + a.origin : text,
         onClick: () => importAction(a, src, text),
       },
-        h(FrameCanvas, { frame: a.frames[0], palette: src.palette, grid, css: ROW_THUMB_CSS }),
+        h(FrameCanvas, { frame: faceFor(a.frames[0], grid), palette: src.palette, grid, css: ROW_THUMB_CSS }),
         h('span', { className: 'status-pet-library-name' }, text),
         h('span', { className: 'status-pet-library-meta' },
           t('settings.actionFrames', { n: a.frames.length })
+            + (hasActionBody(a) ? '' : ' · ' + t('settings.noBody'))
             + (current ? ' · ' + t('settings.importCurrent') : ''))
       );
     };
@@ -718,8 +866,8 @@ export function PixelEditor(props: {
     h('div', { className: 'status-pet-canvas-card' },
 
       // ── 动作 ── WHICH action the board edits: one native dropdown over the
-      // crop's whole library, plus the ops that belong to an action (its name,
-      // and new / duplicate / delete / import).  It never mentions a state —
+      // whole library, plus the ops that belong to an action (its name, and
+      // new / delete / import / its body face).  It never mentions a state —
       // deciding what a state plays is 按状态's job.
       field('action', t('settings.region.action'), t('settings.actionHint'),
         library.length
@@ -747,6 +895,15 @@ export function PixelEditor(props: {
                 ? t('settings.deleteUsed', { n: actionUses.length })
                 : t('settings.deleteAction'),
             }, '× ' + t('settings.deleteAction'))
+          : null,
+        // The body face belongs to the ACTION: it can be drawn, and it can be
+        // given up again (the popup then shows the avatar at 4×).
+        isCustom && action && hasBody
+          ? h('button', {
+              type: 'button', className: miniBtn, onClick: removeBody,
+              'aria-label': t('settings.removeBody'),
+              title: t('settings.removeBodyHint'),
+            }, '⊖ ' + t('settings.removeBody'))
           : null,
         isCustom && action
           ? h('div', { className: 'status-pet-num-field' },
@@ -784,11 +941,12 @@ export function PixelEditor(props: {
 
       // ── 画布 ── the board and, beside it, the ACTION's live preview.  The crop
       // switch stays on the page's tab row (it belongs to both tabs), so the
-      // stage only labels the crop it is showing.
+      // stage only labels the FACE it is showing.
       field('canvas', t('settings.region.canvas'), undefined,
         h('div', { className: 'status-pet-stage' },
           h('div', { className: 'status-pet-stage-cell' },
-            h('span', { className: 'status-pet-stage-caption' }, t('settings.grid.' + grid)),
+            h('span', { className: 'status-pet-stage-caption' },
+              faceLabel + (grid === BODY_GRID && !hasBody ? ' · ' + t('settings.bodyFromAvatar') : '')),
             board
           ),
           h('div', { className: 'status-pet-stage-cell status-pet-inspect' },
@@ -800,12 +958,13 @@ export function PixelEditor(props: {
                       : t('settings.unusedAction'))
                     : '')),
             // The board edits ONE action, so the preview pins it: nothing else
-            // is on screen and nothing has to be shuffled.
+            // is on screen and nothing has to be shuffled.  No `scale` prop:
+            // each face lands on its own ratio (32 drawn at 4×, 128 at 1×), so a
+            // body-less action previews exactly the 4× draft the popup shows.
             h(PetPreview, {
               skinName: studio.skinName,
               grid: grid,
               takeId: selectedId,
-              scale: grid === BODY_GRID ? 1 : 4,
               interactive: false,
             })
           )
@@ -842,17 +1001,17 @@ export function PixelEditor(props: {
         )
       ),
 
-      // ── 帧 ── the filmstrip of the SELECTED ACTION, the two ways to add a
-      // frame, and the ops on the frame LIST.  Duplicating the frame you are
-      // looking at IS how an animation gets made ("draw one, copy it, nudge
-      // it"), so it leads.
+      // ── 帧 ── the filmstrip of the SELECTED ACTION (ONE list — both faces
+      // share it), the two ways to add a frame, and the ops on the frame LIST.
+      // Duplicating the frame you are looking at IS how an animation gets made
+      // ("draw one, copy it, nudge it"), so it leads.
       action
         ? field('frames', t('settings.field.frames'), t('settings.region.frames'),
             h('div', { className: 'status-pet-filmstrip' },
               frames.map((f, i) =>
                 h(FrameThumb, {
                   key: i,
-                  frame: f,
+                  face: faceFor(f, grid),
                   palette: art.palette,
                   grid: grid,
                   active: i === frameIdx,
@@ -893,6 +1052,9 @@ export function PixelEditor(props: {
 
       // ── 当前帧 ── the selected frame's own numbers: how long it is shown, and
       // where the whole frame sits (整幅挪动 — the pixels are never redrawn).
+      // Every one of them is SHARED by the two faces, which is the point of the
+      // paired model: 「整幅挪动」 is authored in avatar cells and the body renders
+      // it ×4, so one press is the same hop on both.
       action && frame
         ? field('frame', t('settings.region.frame'), undefined,
             h('div', { className: 'status-pet-num-field' },
@@ -920,9 +1082,10 @@ export function PixelEditor(props: {
               }),
               h('span', { className: 'status-pet-hint' }, t('settings.frameMs'))
             ),
-            // 整幅挪动 — press an arrow, the whole frame moves one cell.  The
-            // label carries the read-out (e.g. 整幅挪动 ↓1) so the current move
-            // is visible without any x/y notation.
+            // 整幅挪动 — press an arrow, the whole frame moves one avatar cell
+            // (four at the body face).  The label carries the read-out (e.g.
+            // 整幅挪动 ↓1) so the current move is visible without any x/y
+            // notation.
             h('span', { className: 'status-pet-prop-label', title: t('settings.frameOffsetHint') },
               t('settings.frameOffset') + offsetReadout()),
             h('div', { className: 'status-pet-nudge' },
@@ -938,7 +1101,7 @@ export function PixelEditor(props: {
               : null,
             // An imported accent (see clearProp): visible in the filmstrip and
             // the preview, invisible on the board — so it gets a row of its own.
-            frame.prop
+            faceProp
               ? h('div', { className: 'status-pet-num-field' },
                   h('span', { className: 'status-pet-prop-label', title: t('settings.framePropHint') },
                     t('settings.frameProp')),

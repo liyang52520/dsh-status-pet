@@ -8,6 +8,12 @@
 // the caption pet the pet too, because aiming at a small canvas reads as
 // "nothing happened".  The panel owns the reaction, feeds it to the one canvas,
 // and echoes it in the caption, so a click is always answered twice over.
+//
+// The peek shows THE SAME ANIMATION the dock is playing: it pins the dock's
+// derived `state` (v9 guarantees both faces share one action library and one
+// state table) and follows the dock's take and phase (`follow`), so the big
+// picture is not a second, independently rolled pet.  The reaction is the one
+// thing that outranks the pin — petting belongs to the popup.
 
 import { h } from '../host-deps.ts';
 import { translatorOrFallback } from '../pet/labels.ts';
@@ -20,6 +26,8 @@ export interface DockPopupProps {
   panelRef: unknown;
   position: Record<string, unknown> | null;
   title: string;
+  /** The state the dock is showing — the peek plays the same one. */
+  state?: string;
   t?: Translator;
 }
 
@@ -45,6 +53,8 @@ export function DockPopup(props: DockPopupProps) {
       t: props.t,
       best: true,
       zoom: LIVE_ZOOM,
+      state: props.state,
+      follow: true,
       reaction: reaction || undefined,
       className: 'status-pet-popup-preview',
     }),

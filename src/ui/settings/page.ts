@@ -141,14 +141,14 @@ export function SettingsPage(props: { t?: Translator } | null) {
   const editViews: ReadonlyArray<readonly [string, string]> = isCustom ? VIEWS : [VIEWS[0]];
   const editMode: View = isCustom ? editView : 'states';
   void rev; // read through `library` below — the state exists to force the re-read
-  const library: LibraryEntryInfo[] = skinLibrary(skin, crop);
+  const library: LibraryEntryInfo[] = skinLibrary(skin);
   const unused = library.filter((a) => !a.usedBy.length).length;
   const ids = library.map((a) => a.id);
   // The ticks that still name a live action, and the artwork they are ticked
   // against.  A built-in's library is frozen, so selection mode is 我的创作's.
   const pickedLive = picked.filter((id) => ids.includes(id));
   const pickArt = isCustom ? loadCustomArtwork() : null;
-  const pickBlocked = pickArt ? removalIsBlocked(pickArt, crop, pickedLive) : false;
+  const pickBlocked = pickArt ? removalIsBlocked(pickArt, pickedLive) : false;
   const actionLabel = (a: LibraryEntryInfo) => a.name || t('settings.actionN', { n: ids.indexOf(a.id) + 1 });
   const actionQueryNorm = actionQuery.trim().toLowerCase();
   const actionMatches = (a: LibraryEntryInfo) => !actionQueryNorm
@@ -180,8 +180,8 @@ export function SettingsPage(props: { t?: Translator } | null) {
   /** The removal itself — reached only through the confirm dialog. */
   function deletePicked() {
     const art = loadCustomArtwork();
-    if (!art || !pickedLive.length || removalIsBlocked(art, crop, pickedLive)) return;
-    const next = removeLibraryTakes(art, crop, pickedLive);
+    if (!art || !pickedLive.length || removalIsBlocked(art, pickedLive)) return;
+    const next = removeLibraryTakes(art, pickedLive);
     if (next === art) return;
     saveStored({ skin: 'custom', custom: next });
     setPicked([]);
@@ -454,6 +454,10 @@ function actionGallery(props: {
     const painted = h(PetPreview, { takeId: a.id, crop: props.crop, zoom: LIVE_ZOOM, interactive: false });
     const text = h('div', { className: 'status-pet-gallery-text' },
       h('div', { className: 'status-pet-gallery-label' }, label),
+      // The read-out is EXACTLY who plays it — one fact, one line.  Whether the
+      // action carries a body face is visible in the studio's dropdown and its
+      // import rows, where it changes what you are about to draw; on a browsing
+      // tile it would only lengthen the line.
       h('div', { className: 'status-pet-gallery-meta' },
         a.usedBy.length
           ? t('settings.usedByN', { n: a.usedBy.length })

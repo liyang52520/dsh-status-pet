@@ -16,7 +16,10 @@
 //     dropdown.  (Mixing the two on one page is exactly what made the old
 //     studio read as nonsense.)
 //
-// The crop comes from the page's shared 32 / 128 switch: states live per crop.
+// v9: there is ONE assignment for the whole artwork — the dock and the popup
+// play the same action set by construction — so this surface has no crop of its
+// own.  The page's 32 / 128 switch still decides which FACE the row thumbnails
+// show (a viewing preference), and never which library is being assigned.
 //
 // The only ops are 全选 and 清空.  全选 ADDS every action in the list in front
 // of you (the search box is the scope of a bulk tick, so a 106-action library
@@ -33,8 +36,6 @@
 // scroll.  Each group keeps the library's order, the headers only appear while
 // both halves have something in them, and the stored selection is untouched:
 // display order must never re-order the rotation.
-// A missing body crop has no states yet, so it says so instead of rendering a
-// list that writes into a grid nothing resolves.
 //
 // BOTH skins get here.  A built-in's pixels are frozen, but which of its own
 // actions each state plays is the user's to change, and the store keeps that as
@@ -45,20 +46,22 @@
 
 import { React, h } from '../../host-deps.ts';
 import { STATE_NAMES } from '../../pet/behavior.ts';
+import { AVATAR_GRID } from '../../pet/grids.ts';
 import { translatorOrFallback } from '../../pet/labels.ts';
 import type { Translator } from '../../pet/labels.ts';
 import {
   DEFAULT_SKIN,
   MAX_TAKES,
+  actionsOf,
   assignTake,
-  gridArtwork,
+  cellFor,
   saveSkinStates,
   seedArtworkFrom,
   setStateSelection,
   skinArtwork,
   usedBy,
 } from '../../pet/skins/store.ts';
-import type { CustomArtwork, LibraryTake } from '../../pet/skins/store.ts';
+import type { Action, CustomArtwork } from '../../pet/skins/store.ts';
 import { FrameCanvas, ROW_THUMB_CSS } from './frame-canvas.ts';
 import { field } from './field.ts';
 
@@ -67,8 +70,9 @@ export function StateAssignments(props: {
   /** The skin whose states are being assigned: 'custom' (its own document) or a
    * built-in (a diff beside the frozen artwork). */
   skin: string;
-  /** The crop whose states are being assigned (the page's shared switch). */
-  grid: number;
+  /** Which FACE the row thumbnails show (the page's shared switch).  A viewing
+   * preference: the assignment itself is one table for both faces. */
+  grid?: number;
   /** The state whose checkboxes are being edited.  Owned by the page so 预览's
    * state cells can open this mode already pointing at their own state. */
   state: string;
@@ -76,7 +80,7 @@ export function StateAssignments(props: {
 }) {
   const t = translatorOrFallback(props.t);
   const skin = props.skin;
-  const grid = props.grid;
+  const grid = props.grid === 128 ? 128 : AVATAR_GRID;
   const state = props.state;
   // The EFFECTIVE document: a built-in plus the user's overrides, or 我的创作's
   // own.  Reading it (rather than the raw built-in) is what makes a second tick
@@ -91,13 +95,13 @@ export function StateAssignments(props: {
   // 全选 acts on what is LEFT — which is how a bulk change is aimed instead of
   // blunt.
   const [query, setQuery] = React.useState('');
-  const g = gridArtwork(art, grid);
-  const selection = g.states[state] || [];
-  const label = (a: LibraryTake, i: number) => a.name || t('settings.actionN', { n: i + 1 });
+  const library = actionsOf(art);
+  const selection = (art.states && art.states[state]) || [];
+  const label = (a: { name?: string }, i: number) => a.name || t('settings.actionN', { n: i + 1 });
   const q = query.trim().toLowerCase();
-  const rows = g.library
+  const rows = library
     .map((a, i) => ({ a, i }))
-    .filter(({ a, i }) => !q || (label(a, i) + ' ' + (a.name || '') + ' ' + (a.origin || '') + ' ' + a.id)
+    .filter(({ a, i }) => !q || (label(a, i) + ' ' + (a.origin || '') + ' ' + a.id)
       .toLowerCase().includes(q));
   const visibleIds = rows.map(({ a }) => a.id);
   // The list is TWO groups, each in LIBRARY order: what this state ALREADY
@@ -115,7 +119,7 @@ export function StateAssignments(props: {
   function commit(next: CustomArtwork) {
     // The store routes the write (document or override) and re-resolves ACTIVE,
     // so the dock, the popup and 预览 all follow without a reload.
-    saveSkinStates(skin, grid, gridArtwork(next, grid).states);
+    saveSkinStates(skin, next.states || {});
     // Show what was actually STORED: the write may have been refused (quota),
     // and the override merge is the store's, not ours.
     const fresh = skinArtwork(skin) || next;
@@ -124,7 +128,7 @@ export function StateAssignments(props: {
   }
 
   const toggle = (id: string, on: boolean) =>
-    commit(assignTake(artRef.current, grid, state, id, on));
+    commit(assignTake(artRef.current, state, id, on));
   // 全选 ADDS: it ticks every action in the list in front of you on top of what
   // the state already plays.  Replacing would silently throw away ticks the
   // filter is hiding, and ridding a state of a big selection is 清空's job —
@@ -133,8 +137,8 @@ export function StateAssignments(props: {
   const selectAll = () => {
     const taken = new Set(selection);
     const add = new Set(visibleIds);
-    const next = g.library.map((a) => a.id).filter((id) => taken.has(id) || add.has(id));
-    commit(setStateSelection(artRef.current, grid, state, next));
+    const next = library.map((a) => a.id).filter((id) => taken.has(id) || add.has(id));
+    commit(setStateSelection(artRef.current, state, next));
   };
   // 清空 empties any state EXCEPT 空闲, the anchor every unassigned state falls
   // back to: the validator and the resolver both require it to play something,
@@ -144,7 +148,7 @@ export function StateAssignments(props: {
   // that leaves one behind.
   const clearSelection = () => {
     const keep = state === 'idle' ? selection.slice(0, 1) : [];
-    commit(setStateSelection(artRef.current, grid, state, keep));
+    commit(setStateSelection(artRef.current, state, keep));
   };
   // The anchor rule is what 空闲's two buttons answer to, and it is the one
   // thing about this page nobody can guess — so it is PRINTED, not left to a
@@ -152,11 +156,13 @@ export function StateAssignments(props: {
   const idleAnchor = state === 'idle';
   const allTicked = selection.length >= MAX_TAKES;
   // One row = one action: checkbox · thumbnail · name · who plays it.  The
-  // whole row is the <label>, so a click anywhere on it toggles.
-  const row = ({ a, i }: { a: LibraryTake; i: number }) => {
+  // whole row is the <label>, so a click anywhere on it toggles.  An action
+  // whose 32 face is the only one it carries thumbnails as the 4× draft the
+  // popup shows (see `cellFor`), so a body-less row never looks broken.
+  const row = ({ a, i }: { a: Action; i: number }) => {
     const on = ticked.has(a.id);
     const text = label(a, i);
-    const used = usedBy(art, grid, a.id);
+    const used = usedBy(art, a.id);
     return h('label', {
       key: a.id,
       className: 'status-pet-library-row' + (on ? ' assigned' : ''),
@@ -169,7 +175,7 @@ export function StateAssignments(props: {
         title: t('settings.playedHere'),
         onChange: (e: { target: { checked: boolean } }) => toggle(a.id, e.target.checked),
       }),
-      h(FrameCanvas, { frame: a.frames[0], palette: art.palette, grid, css: ROW_THUMB_CSS }),
+      h(FrameCanvas, { frame: cellFor(a.frames[0], grid), palette: art.palette, grid, css: ROW_THUMB_CSS }),
       h('span', { className: 'status-pet-library-name' }, text),
       h('span', { className: 'status-pet-library-meta' },
         a.frames.length + ' · ' + (used.length
@@ -177,11 +183,6 @@ export function StateAssignments(props: {
           : t('settings.unusedAction')))
     );
   };
-
-  if (!art.grids[grid]) {
-    return h('div', { className: 'status-pet-studio' },
-      h('div', { className: 'status-pet-hint' }, t('settings.assignCropMissing')));
-  }
 
   return h('div', { className: 'status-pet-studio' },
     h('div', { className: 'status-pet-canvas-card' },
@@ -198,7 +199,7 @@ export function StateAssignments(props: {
           onChange: (e: { target: { value: string } }) => props.onStateChange(e.target.value),
         },
           STATE_NAMES.map((name) => {
-            const ids = g.states[name];
+            const ids = art.states && art.states[name];
             return h('option', { key: name, value: name },
               t(name) + ' · ' + (ids && ids.length
                 ? t('settings.actionCount', { n: ids.length })
@@ -228,11 +229,11 @@ export function StateAssignments(props: {
           : null
       ),
 
-      // ── 动作库 ── the crop's library, one checkbox per action: "this state
-      // plays it".  The rows this state ALREADY plays come first (see the
-      // grouping above); a search box in front of it is what makes a 106-action
-      // library workable by hand, and what makes 全选 aimable: the filter is the
-      // scope of a bulk tick.
+      // ── 动作库 ── the ONE library, one checkbox per action: "this state plays
+      // it".  The rows this state ALREADY plays come first (see the grouping
+      // above); a search box in front of it is what makes a 106-action library
+      // workable by hand, and what makes 全选 aimable: the filter is the scope of
+      // a bulk tick.
       field('library', t('settings.region.library'), t('settings.libraryHint'),
         h('div', { className: 'status-pet-search-row' },
           h('input', {
@@ -245,7 +246,7 @@ export function StateAssignments(props: {
           }),
           query
             ? h('span', { className: 'status-pet-hint' },
-                t('settings.searchMatches', { n: rows.length, total: g.library.length }))
+                t('settings.searchMatches', { n: rows.length, total: library.length }))
             : null,
           h('span', { className: 'status-pet-hint' + (allTicked ? ' status-pet-full' : '') },
             allTicked

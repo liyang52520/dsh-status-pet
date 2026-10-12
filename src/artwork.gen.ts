@@ -7,14 +7,19 @@
 //
 // So treat this as hand-editable data: fix a built-in action here, and
 // keep the provenance comment above it (source gif, frame indices, gloss)
-// truthful.  Those comments are the catalog of what shipped.  The shape is
-// the ACTION LIBRARY — one entry per action with a
-// stable id, and `states` naming the ids each state plays; see `Artwork` in
-// pet/skins/compose.ts.
+// truthful.  Those comments are the catalog of what shipped.
+//
+// The shape is the v8 ACTION LIBRARY — one entry per action with a stable id
+// per CROP, and each crop's `states` naming the ids it plays (see
+// `LibraryArtwork` in pet/skins/compose.ts).  The runtime PAIRS the two crops
+// through `upgradeArtwork` at install time, so an action here needs its
+// counterpart in the other crop for the dock and the popup to agree: keep the
+// two libraries' ids, order, `frameMs`, frame counts and offsets in step when
+// editing this file.
 
-import type { Artwork } from './pet/skins/compose.ts';
+import type { LibraryArtwork } from './pet/skins/compose.ts';
 
-export const WHALE_CHAN: Artwork = {
+export const WHALE_CHAN: LibraryArtwork = {
   palette: [
     'transparent', '#fbf2f0', '#f8ecea', '#f7e8e5', '#efe4e7', '#f9e3d6', '#f2ded6', '#f0d9d1',
     '#f2d7c5', '#efd1c0', '#e8dfe2', '#e6d9d7', '#dcdce4', '#ddd6db', '#ded4d5', '#e3d1c9',
@@ -70267,4 +70272,4 @@ export const WHALE_CHAN: Artwork = {
   },
 };
 
-export const ARTWORK: Record<string, Artwork> = { 'whale-chan': WHALE_CHAN };
+export const ARTWORK: Record<string, LibraryArtwork> = { 'whale-chan': WHALE_CHAN };

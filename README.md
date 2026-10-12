@@ -72,15 +72,23 @@ Clicking is not the only thing the dock tells you: **three states tint or pulse
 the pill itself** (approval, question, error), so the status bar carries the
 signal even when your eyes are on the chat.
 
-### The two crops, and the size you actually see
+### One action, two faces — the dock and the popup never disagree
 
-She is drawn as two crops of one character — a 32×32 avatar bust for the dock,
-a 128×128 full body for the popup. Both are rendered at one sprite pixel per
-canvas pixel and then shown at **half** (an exact 1:2, so every displayed pixel
-lands on one source pixel and nothing blurs); the Settings previews show them
-1:1 instead, which is the point of having bigger crops.
+She is drawn as two **faces** of the same animation: a 32×32 avatar bust for the
+dock and a 128×128 full body for the popup. Both are rendered at one sprite
+pixel per canvas pixel and then shown at **half** (an exact 1:2, so every
+displayed pixel lands on one source pixel and nothing blurs); the Settings
+previews show them 1:1 instead, which is the point of having bigger faces.
 
-![Two crops, two sizes](docs/media/sizes.png)
+They are **one action, not two libraries**: the frame count, the pace, the
+per-frame timing, the whole-frame nudge and the state assignment are single
+source, and the player couples them too — the dock leads, the popup mirrors its
+take *and its phase*. Open the peek on a running tool and you see the same
+animation the pet is doing, at 64 CSS px instead of 16. Give an action no body
+artwork and the popup draws its avatar at a crisp 4× instead — the body stays
+optional without ever breaking the pair.
+
+![Two faces, two sizes](docs/media/sizes.png)
 
 ## Make her yours 🎨
 
@@ -93,13 +101,15 @@ apron with a tiny whale logo. Everything else is yours to draw:
 - **Skins** — pick Whale-chan, or **我的创作 / My Creation**, which starts as a
   copy of the current skin and is then yours. Switching applies instantly, no
   reload. To change a built-in's pixels or colours, take it into 我的创作.
-- **An action library, not eleven separate animations** — each crop holds ONE
-  library of **actions** (up to 128), and every state simply **ticks the ones it
+- **An action library, not eleven separate animations** — the skin holds ONE
+  library of **actions** (up to 128), each one animation with **two faces** (the
+  avatar and the optional body), and every state simply **ticks the ones it
   plays** (编辑 · 按状态). Up to **8 frames** per action, each frame a full grid you
   paint freely in 编辑 · 按动作 — one click, one pixel, **no forced mirroring**, so
-  a wink is drawable. Tick one action in several states and it is *reused*: the
-  editor says 「被 3 个状态在用」, and editing it once changes all three. A state
-  with nothing ticked follows Idle. **导入动作** fills a slot instead of growing
+  a wink is drawable — and the frame count, pace and nudge are shared by both
+  faces, so the head and the body can never drift apart. Tick one action in
+  several states and it is *reused*: the editor says 「被 3 个状态在用」, and
+  editing it once changes all three. A state with nothing ticked follows Idle. **导入动作** fills a slot instead of growing
   the library: pick one of the built-in animations (吃年糕, 吐泡泡, 原地360°旋转…
   — the picker has a search box and thumbnails) or one of your own, and it
   replaces the action you are editing — same slot, so the states that played it
@@ -112,9 +122,11 @@ apron with a tiny whale logo. Everything else is yours to draw:
   paint with is baked into the pixels, so editing a brush never repaints what
   you already drew. Right-click a pixel to pick its colour up onto the current
   brush; the `×` well erases. Your paint box survives a reload.
-- **Both crops** — draw the 32×32 avatar and the 128×128 body. A skin with no
-  body crop falls back to the avatar at a crisp 4× upscale, and the studio can
-  seed your 128×128 draft from the avatar in one click.
+- **Both faces** — draw the 32×32 avatar (always required) and, for any action
+  you like, its 128×128 body. The 128 board offers a 4× draft of that action — or
+  of every action at once — and a body-carrying action can drop its body again,
+  falling back to the avatar at a crisp 4× upscale. The crop switch on the tab
+  row picks which FACE you are drawing, never which library.
 
 Nothing you can do in the studio can break the pet: every load validates the
 stored artwork, and a corrupt or hand-edited store falls back to the whale
@@ -191,8 +203,8 @@ skin cards on top, then two tabs:
   actions and the paint box are 我的创作's alone.
 
 The **32 / 128** switch sits on the tab row, because it belongs to both tabs: it
-is the crop you look at *and* the crop you edit. The board is a square that can
-only ever be as large as the pane gives it: the whole 128×128 crop is visible at
+is the face you look at *and* the face you draw. The board is a square that can
+only ever be as large as the pane gives it: the whole 128×128 face is visible at
 any width, and it never scrolls sideways.
 
 ## Good to know
@@ -212,9 +224,10 @@ any width, and it never scrolls sideways.
 - **No polling, no runtime dependencies** — she reads the session through the
   slot's standard props with narrow selectors, and the shipped artifact is plain
   JS plus the React the DSH web shell already has.
-- **Skins are data** — a skin is one artwork document (a palette, a per-crop
-  action library, and which action ids each state plays), which is why a built-in
-  and 我的创作 are the same thing and both are swappable at runtime.
+- **Skins are data** — a skin is one artwork document (a palette, an action
+  library whose entries carry both faces, and which action ids each state plays),
+  which is why a built-in and 我的创作 are the same thing, and both are swappable
+  at runtime.
 - **Old drawings are upgraded, not dropped** — a store from the previous schema
   is converted on read, and the conversion *shares*: a take that used to be
   copied into three states becomes one action they all reference.

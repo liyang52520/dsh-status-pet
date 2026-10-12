@@ -9,15 +9,18 @@
 //                    lists on every call, and every resolution calls it.
 //   `artworkDoc`     the document of a named skin, so the store's "who is
 //                    this?" question is answered once per storage revision.
+//
+// v9: the state assignment is ONE table for the whole artwork (both faces play
+// the same action set), so the built-in sidecar is a flat `{ state: ids }` diff
+// rather than one diff per crop.
 
 import { STATE_NAMES } from '../behavior.ts';
 import { AVATAR_GRID } from '../grids.ts';
 import { BUILTIN_NAMES, DEFAULT_SKIN, builtinArtwork } from './built-ins.ts';
 import { artworkIsValid, validateArtwork } from './validate.ts';
-import { looksLegacy } from './convert.ts';
 import { MAX_TAKES, upgradeArtwork } from './compose.ts';
-import type { Artwork, LegacyArtwork, LibraryTake, Take } from './compose.ts';
-import { gridArtwork, libraryInfo, withGridArtwork } from './library.ts';
+import type { Action, ActionFrame, Artwork, Cell } from './compose.ts';
+import { actionsOf, libraryInfo, withStates } from './library.ts';
 import type { LibraryEntryInfo } from './library.ts';
 import { loadStored, saveStored, STORE_VERSION } from './storage.ts';
 import type { CustomArtwork, StoredData } from './storage.ts';
@@ -35,70 +38,62 @@ export type { LibraryEntryInfo };
 // forked on the first stroke, which is what made "I edited the whale but saved
 // 我的创作" happen).
 //
-// The sidecar stores a DIFF against the authored assignment, per crop:
-// `{ 'whale-chan': { '32': { tool: ['xie-daima'] } } }`.  An ABSENT state key
-// means "no opinion — use the authored assignment" (so a later artwork update
-// still moves the states the user never touched), while a PRESENT-BUT-EMPTY
-// list means "this state deliberately plays nothing, it follows idle" — the
-// only way to say that about a state the artwork assigned.
+// The sidecar stores a DIFF against the authored assignment:
+// `{ 'whale-chan': { tool: ['xie-daima'] } }`.  An ABSENT state key means "no
+// opinion — use the authored assignment" (so a later artwork update still moves
+// the states the user never touched), while a PRESENT-BUT-EMPTY list means
+// "this state deliberately plays nothing, it follows idle" — the only way to
+// say that about a state the artwork assigned.
 //
 // Ids are re-checked against the library on the way in, and `idle` can never be
 // emptied: resolution requires an idle animation, and a document that fails to
 // resolve would blank the pet.
-type OverrideGrids = Record<string, Record<string, string[]>>;
+export type StateOverride = Record<string, string[]>;
 
 /** The user's assignment diff for one built-in, or null when they have no
  *  opinion about it.  Exported because the resolution needs the same read. */
-export function artworkOverrides(store: StoredData, name: string): OverrideGrids | null {
+export function artworkOverrides(store: StoredData, name: string): StateOverride | null {
   return overrideFor(store, name);
 }
 
-function overrideFor(store: StoredData, name: string): OverrideGrids | null {
+function overrideFor(store: StoredData, name: string): StateOverride | null {
   if (name === 'custom' || !BUILTIN_NAMES.includes(name)) return null;
   const all = store.builtinStates;
   if (!all || typeof all !== 'object') return null;
   const mine = (all as Record<string, unknown>)[name];
-  return mine && typeof mine === 'object' ? (mine as OverrideGrids) : null;
+  return mine && typeof mine === 'object' ? (mine as StateOverride) : null;
 }
 
 const OVERRIDDEN = new WeakMap<Artwork, WeakMap<object, Artwork>>();
 
-/** The authored artwork with the user's state overrides applied.  Frames and
+/** The authored artwork with the user's state overrides applied.  Actions and
  *  the palette are shared BY REFERENCE — an override is a list of ids — and the
  *  result is memoized by (artwork, override) identity, so a resolution that
  *  asks twice builds nothing the second time. */
-export function withOverrides(art: Artwork | undefined, override: OverrideGrids | null): Artwork | undefined {
-  if (!art || !override) return art;
+export function withOverrides(art: Artwork | undefined, override: StateOverride | null): Artwork | undefined {
+  if (!art || !override || typeof override !== 'object') return art;
   let byOverride = OVERRIDDEN.get(art);
   const hit = byOverride && byOverride.get(override);
   if (hit) return hit;
   let changed = false;
-  const grids = { ...art.grids };
-  for (const key of Object.keys(override)) {
-    const grid = Number(key);
-    const g = art.grids[grid];
-    const patch = override[key];
-    if (!g || !patch || typeof patch !== 'object') continue;
-    const have = new Set(g.library.map((t) => t.id));
-    const states: Record<string, string[]> = { ...g.states };
-    for (const state of Object.keys(patch)) {
-      if (!STATE_NAMES_SET.has(state)) continue;
-      const raw = patch[state];
-      if (!Array.isArray(raw)) continue;
-      const next = raw
-        .filter((id, i) => typeof id === 'string' && have.has(id) && raw.indexOf(id) === i)
-        .slice(0, MAX_TAKES);
-      if (next.length) states[state] = next;
-      else delete states[state];
-      changed = true;
-    }
-    if (!Array.isArray(states.idle) || !states.idle.length) {
-      const authored = g.states.idle || [];
-      states.idle = authored.length ? authored.slice() : g.library.slice(0, 1).map((t) => t.id);
-    }
-    grids[grid] = { library: g.library, states };
+  const have = new Set(actionsOf(art).map((t) => t.id));
+  const states: Record<string, string[]> = { ...(art.states || {}) };
+  for (const state of Object.keys(override)) {
+    if (!STATE_NAMES_SET.has(state)) continue;
+    const raw = override[state];
+    if (!Array.isArray(raw)) continue;
+    const next = raw
+      .filter((id, i) => typeof id === 'string' && have.has(id) && raw.indexOf(id) === i)
+      .slice(0, MAX_TAKES);
+    if (next.length) states[state] = next;
+    else delete states[state];
+    changed = true;
   }
-  const out = changed ? { ...art, grids } : art;
+  if (!Array.isArray(states.idle) || !states.idle.length) {
+    const authored = art.states?.idle || [];
+    states.idle = authored.length ? authored.slice() : actionsOf(art).slice(0, 1).map((t) => t.id);
+  }
+  const out = changed ? withStates(art, states) : art;
   if (!byOverride) {
     byOverride = new WeakMap();
     OVERRIDDEN.set(art, byOverride);
@@ -147,16 +142,14 @@ export function loadCustomArtwork(): CustomArtwork | null {
   return stored.custom && artworkIsValid(stored.custom) ? stored.custom : null;
 }
 
-/** A skin's action library at one crop: every action, its name/origin, how
- *  many frames it holds and WHICH STATES PLAY IT.  This is what the Workshop's
- *  「按动作」 gallery and the studio's list both read — one source, so the two
- *  can never disagree about what the library holds. */
-export function skinLibrary(name: string, grid: number = AVATAR_GRID): LibraryEntryInfo[] {
+/** A skin's action library: every action, its name/origin, how many frames it
+ *  holds and WHICH STATES PLAY IT.  This is what the Workshop's 「按动作」
+ *  gallery and the studio's list both read — one source, so the two can never
+ *  disagree about what the library holds. */
+export function skinLibrary(name: string): LibraryEntryInfo[] {
   const art = artworkDoc(name);
   if (!art) return [];
-  const use = art.grids[grid] ? grid : AVATAR_GRID;
-  if (!art.grids[use]) return [];
-  return libraryInfo(art, use);
+  return libraryInfo(art);
 }
 
 // ── assignment write-back ──
@@ -166,7 +159,7 @@ export function skinLibrary(name: string, grid: number = AVATAR_GRID): LibraryEn
  *  writes the DIFF against the authored assignment, so the skin keeps its own
  *  pixels and a state the user never touched keeps following the artwork.  An
  *  empty list for a state is stored as such: "plays nothing, follows idle". */
-export function saveSkinStates(name: string, grid: number, states: Record<string, string[]>): void {
+export function saveSkinStates(name: string, states: Record<string, string[]>): void {
   const clean = (ids: string[] | undefined): string[] =>
     Array.isArray(ids)
       ? ids.filter((id, i) => typeof id === 'string' && ids.indexOf(id) === i).slice(0, MAX_TAKES)
@@ -174,39 +167,34 @@ export function saveSkinStates(name: string, grid: number, states: Record<string
   if (name === 'custom') {
     const cur = loadCustomArtwork() || seedArtworkFrom(DEFAULT_SKIN);
     if (!cur) return;
-    const g = gridArtwork(cur, grid);
-    const have = new Set(g.library.map((t) => t.id));
+    const have = new Set(actionsOf(cur).map((t) => t.id));
     const next: Record<string, string[]> = {};
     for (const state of STATE_NAMES) {
       const ids = clean(states[state]).filter((id) => have.has(id));
       if (ids.length) next[state] = ids;
     }
-    // The avatar crop's idle assignment is required, so an accidental 清空 of
-    // idle must not invalidate the whole document.
-    if (!next.idle || !next.idle.length) next.idle = (g.states.idle || []).slice();
+    // An idle assignment is required, so an accidental 清空 of idle must not
+    // invalidate the whole document.
+    if (!next.idle || !next.idle.length) next.idle = (cur.states?.idle || []).slice();
     if (!next.idle || !next.idle.length) return;
-    saveStored({ custom: withGridArtwork(cur, grid, { library: g.library, states: next }) });
+    saveStored({ custom: withStates(cur, next) });
     return;
   }
   if (!BUILTIN_NAMES.includes(name)) return;
   const art = builtinArtwork(name);
-  const g = art ? art.grids[grid] : undefined;
-  if (!art || !g) return;
-  const have = new Set(g.library.map((t) => t.id));
+  if (!art) return;
+  const have = new Set(actionsOf(art).map((t) => t.id));
   const diff: Record<string, string[]> = {};
   for (const state of STATE_NAMES) {
     const ids = clean(states[state]).filter((id) => have.has(id));
-    const base = g.states[state] || [];
+    const base = art.states?.[state] || [];
     if (ids.join('\u0000') !== base.join('\u0000')) diff[state] = ids;
   }
   if (!(diff.idle && diff.idle.length)) delete diff.idle;
   const stored = loadStored();
-  const all: Record<string, OverrideGrids> =
-    { ...((stored.builtinStates as Record<string, OverrideGrids> | undefined) || {}) };
-  const mine: OverrideGrids = { ...(all[name] || {}) };
-  if (Object.keys(diff).length) mine[String(grid)] = diff;
-  else delete mine[String(grid)];
-  if (Object.keys(mine).length) all[name] = mine;
+  const all: Record<string, StateOverride> =
+    { ...((stored.builtinStates as Record<string, StateOverride> | undefined) || {}) };
+  if (Object.keys(diff).length) all[name] = diff;
   else delete all[name];
   saveStored({ builtinStates: all });
 }
@@ -214,53 +202,57 @@ export function saveSkinStates(name: string, grid: number, states: Record<string
 // ── seeding 我的创作 ──
 
 /** Bake a built-in skin into a full CustomArtwork document: its whole action
- *  library on the avatar grid, plus the 128px body grid when the skin carries
- *  one, with the built-in's authored palette, names and state assignments.  The
- *  studio's initial view and the picker's custom seeding both come from here.
+ *  library (BOTH faces of every action), its palette, names and state
+ *  assignments.  The studio's initial view and the picker's custom seeding both
+ *  come from here.
  *
- *  Rows and frames are shared BY REFERENCE where they can be (a row string is
- *  immutable), so seeding the 106-action built-in library costs one pass over
- *  the object graph — never a copy of 15 MB of strings. */
+ *  Rows are cloned (a row string is immutable, but the arrays around them are
+ *  the studio's to replace), so seeding the 106-action built-in library costs
+ *  one pass over the object graph — never a copy of 15 MB of pixels. */
 export function seedArtworkFrom(name: string): CustomArtwork {
   // The effective document: 我的创作 starts as a copy of what the user SEES,
   // including any state reassignment they made on the built-in.
   const art = artworkDoc(BUILTIN_NAMES.includes(name) ? name : DEFAULT_SKIN)
     || builtinArtwork(DEFAULT_SKIN);
-  if (!art) return { palette: ['transparent'], grids: {} };
-  const cloneFrames = (t: Take): Take => ({
-    frameMs: t.frameMs,
-    frames: t.frames.map((f) => ({
-      rows: f.rows.slice(), dx: f.dx, dy: f.dy, ms: f.ms,
-      prop: f.prop ? { x: f.prop.x, y: f.prop.y, rows: f.prop.rows.slice() } : undefined,
-    })),
+  if (!art) return { palette: ['transparent'], actions: [], states: {} };
+  const cloneCell = (cell: Cell): Cell => ({
+    rows: cell.rows.slice(),
+    prop: cell.prop ? { x: cell.prop.x, y: cell.prop.y, rows: cell.prop.rows.slice() } : undefined,
   });
-  const grids: CustomArtwork['grids'] = {};
-  for (const key of Object.keys(art.grids)) {
-    const g = art.grids[Number(key)];
-    if (!g) continue;
-    const library: LibraryTake[] = g.library.map((t) => {
-      const entry = cloneFrames(t) as LibraryTake;
-      entry.id = t.id;
-      if (t.name) entry.name = t.name;
-      if (t.origin) entry.origin = t.origin;
-      return entry;
+  const actions: Action[] = actionsOf(art).map((a) => {
+    const frames: ActionFrame[] = a.frames.map((f) => {
+      const cells: ActionFrame['cells'] = { [AVATAR_GRID]: cloneCell(f.cells[AVATAR_GRID]) };
+      for (const grid of Object.keys(f.cells)) {
+        const g = Number(grid);
+        if (g === AVATAR_GRID) continue;
+        const cell = f.cells[g];
+        if (cell) cells[g] = cloneCell(cell);
+      }
+      const frame: ActionFrame = { cells };
+      if (f.ms !== undefined) frame.ms = f.ms;
+      if (f.dx) frame.dx = f.dx;
+      if (f.dy) frame.dy = f.dy;
+      return frame;
     });
-    const states: Record<string, string[]> = {};
-    for (const state of Object.keys(g.states)) states[state] = g.states[state].slice();
-    grids[Number(key)] = { library, states };
-  }
-  return { palette: art.palette.slice(), grids };
+    const out: Action = { id: a.id, frameMs: a.frameMs, frames };
+    if (a.name) out.name = a.name;
+    if (a.origin) out.origin = a.origin;
+    return out;
+  });
+  const states: Record<string, string[]> = {};
+  for (const state of Object.keys(art.states || {})) states[state] = art.states[state].slice();
+  return { palette: art.palette.slice(), actions, states };
 }
 
 // ── import / export ──
 
-/** The wire format is versioned: `{ v, palette, grids }`.  A bare
- *  `{ palette, grids }` (hand-written JSON, or an export from before the
- *  stamp) is accepted by SHAPE — a v8 document validates as itself, a v7 one is
- *  recognised as the legacy shape and upgraded — while a document from a NEWER
- *  version is refused instead of being half-read. */
+/** The wire format is versioned: `{ v, palette, actions, states }`.  A bare
+ *  document (hand-written JSON, or an export from before the stamp) is accepted
+ *  by SHAPE — a v9 document validates as itself, a v8 one is paired and a v7
+ *  one is recognised as the legacy shape and upgraded — while a document from a
+ *  NEWER version is refused instead of being half-read. */
 export function serializeArtwork(d: CustomArtwork): string {
-  return JSON.stringify({ v: STORE_VERSION, palette: d.palette, grids: d.grids });
+  return JSON.stringify({ v: STORE_VERSION, palette: d.palette, actions: d.actions, states: d.states });
 }
 
 export type ParseResult =
@@ -287,10 +279,12 @@ export function parseArtworkExport(text: string): ParseResult {
   if (v !== undefined && v > STORE_VERSION) return { errors: ['exported by a newer version'] };
   const errors = validateArtwork(found);
   if (!errors.length) return { data: found as CustomArtwork };
-  // A pre-v8 export is upgraded rather than refused: the state-owned shape is
-  // mechanically convertible, and refusing it would strand the user's drawing.
-  if (!looksLegacy(found)) return { errors };
-  const upgraded = upgradeArtwork(found as LegacyArtwork);
+  // An older export is upgraded rather than refused: both older shapes are
+  // mechanically convertible, and refusing would strand the user's drawing.
+  // A v9-shaped document comes back unchanged (and fails again, which is the
+  // honest answer — it was simply invalid).
+  const upgraded = upgradeArtwork(found);
+  if (!upgraded) return { errors };
   const upErrors = validateArtwork(upgraded);
   if (upErrors.length) return { errors: upErrors };
   return { data: upgraded };

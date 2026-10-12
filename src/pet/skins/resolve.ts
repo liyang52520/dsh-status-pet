@@ -13,29 +13,51 @@
 //   * the per-state bodies stay LAZY (a canvas plays one state; the gallery
 //     resolves one action each), and two states that play the same set share
 //     one object by identity.
-//   * frames are parsed through `spriteFor`, memoized per Frame object, so a
-//     stroke re-parses the frame it painted and re-uses every other sprite.
+//   * a face is parsed through `spriteFor`, memoized per CELL object, and the
+//     4× body fallback is memoized per avatar cell, so a stroke re-parses the
+//     face it painted and re-uses every other sprite.
 //
-// The old code could not do any of this: it cleared ALL caches on every write
-// and re-validated the whole document per resolution.  Opening 预览 · 按动作
-// cost ~876 ms and a single painted pixel ~95 ms.  Identity is the invalidation
-// key now — a document that changed is a different object.
+// ── the two faces ──
+//
+// A v9 action carries `cells[32]` (required) and `cells[128]` (optional).  A
+// grid-128 resolution is only offered when the artwork carries a body anywhere
+// (`hasBody`); a frame without its own body face falls back to the avatar face
+// at an exact 4× integer upscale, and a skin with no body at all resolves its
+// popup from the AVATAR grid drawn at `BODY_FALLBACK_SCALE` — the same picture,
+// without materialising 16k-pixel bitmaps for it.
+//
+// Offsets are authored in avatar units: the resolved frame carries
+// `dx × offsetScale(grid)`, so one gesture is the same hop on both faces (and
+// never exceeds `GRIDS[grid].maxOffset`).
 
 import { STATE_NAMES } from '../behavior.ts';
-import { AVATAR_GRID, BODY_GRID, GRIDS } from '../grids.ts';
+import { AVATAR_GRID, BODY_FALLBACK_SCALE, BODY_GRID, GRIDS } from '../grids.ts';
 import { BUILTIN_NAMES, DEFAULT_SKIN, builtinArtwork, installArtwork } from './built-ins.ts';
-import { DEFAULT_FRAME_MS, spriteFor } from './compose.ts';
-import type { Artwork, LibraryTake, Sprite, Take } from './compose.ts';
+import { DEFAULT_FRAME_MS, cellFor, hasBody, offsetScale, spriteFor } from './compose.ts';
+import type { Action, Artwork, Sprite } from './compose.ts';
 import { artworkDoc, artworkOverrides, withOverrides } from './documents.ts';
 import { artworkIsValid } from './validate.ts';
-import { blankRows } from './paint.ts';
 import { loadStored, onStoreWrite, SKIN_EVENT, STORE_KEY } from './storage.ts';
 import type { StoredData } from './storage.ts';
 
-/** One state's frames, parsed and render-ready: each frame carries its sprite
- *  and its effective duration (frame.ms ?? take.frameMs). */
+/** One frame, parsed and render-ready: its sprite plus the whole-frame offset
+ *  ALREADY scaled for this grid (the renderer draws at `padX + dx`). */
+export interface ResolvedFrame {
+  ms: number;
+  sprite: Sprite;
+  dx: number;
+  dy: number;
+}
+
+/** One state's frames: each frame carries its sprite and its effective
+ *  duration (frame.ms ?? take.frameMs). */
+export interface ResolvedTake {
+  frameMs: number;
+  frames: ResolvedFrame[];
+}
+
 export interface ResolvedState {
-  takes: { frameMs: number; frames: { ms: number; sprite: Sprite }[] }[];
+  takes: ResolvedTake[];
 }
 
 /** Render-ready skin data for one grid of one skin. */
@@ -63,16 +85,36 @@ export interface ResolvedSkin {
 // The library turns a state's list of IDS into its takes, so two states that
 // play the same set share one resolution by identity as well — the reference is
 // the same, the resolved animation is the same object.
+
+/** One frame's face at `grid`: the authored cell, or the avatar at 4× — the
+ *  same fallback the Workshop shows, memoized per (frame, grid). */
+function faceSprite(frame: Action['frames'][number], grid: number): Sprite {
+  return spriteFor(cellFor(frame, grid));
+}
+
+function resolveActionTakes(action: Action, grid: number): ResolvedTake {
+  const scale = offsetScale(grid);
+  return {
+    frameMs: action.frameMs,
+    frames: action.frames.map((f) => ({
+      ms: f.ms ?? action.frameMs,
+      sprite: faceSprite(f, grid),
+      dx: (f.dx || 0) * scale,
+      dy: (f.dy || 0) * scale,
+    })),
+  };
+}
+
 function resolveStateTakes(
-  library: LibraryTake[],
+  actions: Action[],
   states: Record<string, string[]>,
   grid: number,
 ): Record<string, ResolvedState> {
-  const byId = new Map(library.map((t) => [t.id, t]));
-  const selection = (name: string): { list: Take[]; key: string } | null => {
+  const byId = new Map(actions.map((t) => [t.id, t]));
+  const selection = (name: string): { list: Action[]; key: string } | null => {
     const ids = states[name];
     if (!Array.isArray(ids) || !ids.length) return null;
-    const list: Take[] = [];
+    const list: Action[] = [];
     for (const id of ids) {
       const take = byId.get(id);
       if (take) list.push(take);
@@ -80,16 +122,16 @@ function resolveStateTakes(
     return list.length ? { list, key: ids.join('\u0000') } : null;
   };
   const own = selection('idle');
-  const idleSource: Take[] = own ? own.list
-    : [{ frameMs: DEFAULT_FRAME_MS, frames: [{ rows: blankRows(grid) }] }];
-  const resolve = (list: Take[]): ResolvedState => ({
-    takes: list.map((t) => ({
-      frameMs: t.frameMs,
-      frames: t.frames.map((f) => ({ ms: f.ms ?? t.frameMs, sprite: spriteFor(f) })),
-    })),
-  });
+  const idleSource: Action[] = own ? own.list : [{
+    id: '\u0000blank',
+    frameMs: DEFAULT_FRAME_MS,
+    frames: [{ cells: { [AVATAR_GRID]: { rows: blankAvatar() } } }],
+  }];
   const memo = new Map<string, ResolvedState>();
-  const lazily = (list: Take[], key: string) => (): ResolvedState => {
+  const resolve = (list: Action[]): ResolvedState => ({
+    takes: list.map((t) => resolveActionTakes(t, grid)),
+  });
+  const lazily = (list: Action[], key: string) => (): ResolvedState => {
     let hit = memo.get(key);
     if (!hit) {
       hit = resolve(list);
@@ -113,6 +155,11 @@ function resolveStateTakes(
   return out;
 }
 
+function blankAvatar(): string[] {
+  const row = '..'.repeat(AVATAR_GRID);
+  return Array.from({ length: AVATAR_GRID }, () => row);
+}
+
 // ── one skin ──
 
 /** Resolution memo, keyed by the artwork OBJECT and then by (name, grid).
@@ -120,16 +167,21 @@ function resolveStateTakes(
  *  outlive the document it was built from. */
 const RESOLVED = new WeakMap<Artwork, Map<string, ResolvedSkin | null>>();
 
-/** One resolver for every skin: a built-in and 我的创作 are the same `Artwork`
- *  shape, so there is exactly one code path from artwork to render-ready data.
- *  A skin without the requested crop falls back to ITS OWN other crop — never
- *  to another skin's artwork. */
-function resolveArtwork(name: string, art: Artwork, grid: number): ResolvedSkin | null {
+function memoFor(art: Artwork): Map<string, ResolvedSkin | null> {
   let byKey = RESOLVED.get(art);
   if (!byKey) {
     byKey = new Map();
     RESOLVED.set(art, byKey);
   }
+  return byKey;
+}
+
+/** One resolver for every skin: a built-in and 我的创作 are the same `Artwork`
+ *  shape, so there is exactly one code path from artwork to render-ready data.
+ *  A skin without the requested crop falls back to ITS OWN other crop — never
+ *  to another skin's artwork. */
+function resolveArtwork(name: string, art: Artwork, grid: number): ResolvedSkin | null {
+  const byKey = memoFor(art);
   const key = name + '|' + grid;
   const hit = byKey.get(key);
   if (hit !== undefined || byKey.has(key)) return hit!;
@@ -139,14 +191,17 @@ function resolveArtwork(name: string, art: Artwork, grid: number): ResolvedSkin 
 }
 
 function computeResolve(name: string, art: Artwork, grid: number): ResolvedSkin | null {
-  const g = art.grids[grid];
-  if (!g || !Array.isArray(g.library) || !g.library.length) return null;
-  if (!Array.isArray(g.states?.idle) || !g.states.idle.length) return null;
+  if (!Array.isArray(art.actions) || !art.actions.length) return null;
+  if (!Array.isArray(art.states?.idle) || !art.states.idle.length) return null;
+  // The body is OPTIONAL: a skin that carries none is resolved from its avatar
+  // (the caller draws that at 4×), which is the same picture for a fraction of
+  // the work.
+  if (grid === BODY_GRID && !hasBody(art)) return null;
   const spec = GRIDS[grid];
   return {
     name,
     palette: art.palette.slice(),
-    states: resolveStateTakes(g.library, g.states, grid),
+    states: resolveStateTakes(art.actions, art.states, grid),
     grid,
     canvasW: spec.canvasW,
     canvasH: spec.canvasH,
@@ -210,7 +265,7 @@ function resolveFor(stored: StoredData, name: string, grid: number): ResolvedSki
 
 // The override sidecar is read through documents.ts, which owns its shape and
 // its diff semantics.
-function overrideFor(stored: StoredData, name: string): Record<string, Record<string, string[]>> | null {
+function overrideFor(stored: StoredData, name: string): Record<string, string[]> | null {
   return artworkOverrides(stored, name);
 }
 
@@ -226,8 +281,9 @@ export function resolveSkin(stored: unknown): ResolvedSkin {
   return resolveFor(store, storedName(store), AVATAR_GRID);
 }
 
-/** The popup resolution: the 128px full body when the skin carries it,
- *  else the skin's own 32px avatar (drawn at 4× — integer upscale). */
+/** The popup resolution: the 128px full body when the skin carries one, else
+ *  the skin's own 32px avatar (drawn at `BODY_FALLBACK_SCALE` — integer
+ *  upscale, so it stays crisp). */
 export function resolveBestSkin(): ResolvedSkin {
   const stored = loadStored();
   return resolveFor(stored, storedName(stored), BODY_GRID);
@@ -235,10 +291,10 @@ export function resolveBestSkin(): ResolvedSkin {
 
 /** Resolve a NAMED skin for the picker's cards and the studio preview,
  *  regardless of the active skin.  A built-in resolves its authored palette;
- *  `custom` resolves its own artwork palette.  `grid` picks the artwork crop
- *  (default: the 32px avatar; the 128px body exists only when the artwork
- *  carries it, else the avatar at 4x is used).  Returns null for 'custom'
- *  without artwork (a blank card, never a crash). */
+ *  `custom` resolves its own artwork palette.  `grid` picks the crop (default:
+ *  the 32px avatar; the 128px body exists only when the artwork carries it,
+ *  else the avatar at 4x is used).  Returns null for 'custom' without artwork
+ *  (a blank card, never a crash). */
 export function resolveNamedSkin(name: string, grid: number = AVATAR_GRID): ResolvedSkin | null {
   const art = artworkDoc(name);
   if (!art) {
@@ -257,11 +313,7 @@ export function resolveNamedSkin(name: string, grid: number = AVATAR_GRID): Reso
 export function resolveTakeSkin(name: string, grid: number, takeId: string): ResolvedSkin | null {
   const art = artworkDoc(name);
   if (!art) return null;
-  let byKey = RESOLVED.get(art);
-  if (!byKey) {
-    byKey = new Map();
-    RESOLVED.set(art, byKey);
-  }
+  const byKey = memoFor(art);
   const key = 'take|' + name + '|' + grid + '|' + takeId;
   const hit = byKey.get(key);
   if (hit !== undefined || byKey.has(key)) return hit!;
@@ -271,22 +323,16 @@ export function resolveTakeSkin(name: string, grid: number, takeId: string): Res
 }
 
 function computeTakeResolve(name: string, art: Artwork, grid: number, takeId: string): ResolvedSkin | null {
-  const use = art.grids[grid] ? grid : (grid === BODY_GRID ? AVATAR_GRID : 0);
+  const use = usableGrid(art, grid);
   if (!use) return null;
-  const g = art.grids[use]!;
-  const take = g.library.find((t) => t.id === takeId);
-  if (!take) return null;
+  const action = art.actions.find((t) => t.id === takeId);
+  if (!action) return null;
   const spec = GRIDS[use];
   // A one-action skin: every state maps to the SAME resolved object, so the
   // preview is pinned whatever state name it is handed.  Building it directly
   // skips the library map that a full resolution needs — the gallery asks for
   // up to 106 of these, one per cell.
-  const resolved: ResolvedState = {
-    takes: [{
-      frameMs: take.frameMs,
-      frames: take.frames.map((f) => ({ ms: f.ms ?? take.frameMs, sprite: spriteFor(f) })),
-    }],
-  };
+  const resolved: ResolvedState = { takes: [resolveActionTakes(action, use)] };
   const states: Record<string, ResolvedState> = {};
   for (const state of STATE_NAMES) {
     Object.defineProperty(states, state, {
@@ -304,6 +350,14 @@ function computeTakeResolve(name: string, art: Artwork, grid: number, takeId: st
     canvasH: spec.canvasH,
     baseY: spec.baseY,
   };
+}
+
+/** The grid to resolve a request on: the asked-for one, or the avatar when the
+ *  artwork carries no body.  0 when there is nothing renderable. */
+export function usableGrid(art: Artwork, grid: number): number {
+  if (grid !== BODY_GRID) return GRIDS[grid] ? grid : 0;
+  if (hasBody(art)) return BODY_GRID;
+  return AVATAR_GRID;
 }
 
 // ── the module-level ACTIVE skin ──
@@ -336,11 +390,12 @@ export function emitSkinChange(): void {
   }
 }
 
-/** Install the built-in artwork chunk: swap the registry in, re-resolve ACTIVE
- *  and notify every subscriber, so the canvases pick the pixels up on their
- *  next frame.  Called once by main.ts when `client.artwork.js` lands. */
-export function installSkinArtwork(art: Record<string, Artwork>): void {
-  installArtwork(art);
+/** Install the built-in artwork chunk: PAIR its documents (the baked chunk is
+ *  still the v8 shape), swap the registry in, re-resolve ACTIVE and notify every
+ *  subscriber, so the canvases pick the pixels up on their next frame.  Called
+ *  once by main.ts when `client.artwork.js` lands. */
+export function installSkinArtwork(art: Record<string, unknown>): void {
+  installArtwork(art as Parameters<typeof installArtwork>[0]);
   refreshActiveSkin();
   emitSkinChange();
 }

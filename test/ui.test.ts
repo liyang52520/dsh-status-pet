@@ -239,10 +239,34 @@ test('click popup: closed by default, opens on click, closes on second click', (
     'the popup carries the big preview pinned to the best resolution');
   assert.equal(bigPreview.props.zoom, LIVE_ZOOM,
     'the peek is DISPLAYED at 64px of art (an exact 1:2 of the 128px crop it renders)');
+  // The peek is the SAME animation: it is pinned to the dock's derived state
+  // (rather than idling by itself, which is what it used to do while the caption
+  // named the real state) and it mirrors the dock's take and phase.
+  assert.equal(bigPreview.props.state, 'idle', 'pinned to the state the dock is showing');
+  assert.equal(bigPreview.props.follow, true, 'and coupled to the dock\'s take channel');
   assert.equal(panel.props.style.visibility, 'hidden', 'hidden until the position resolves');
   assert.equal(view.title, 'S:idle', 'the dock click does not pet — it only opens');
   view.click();
   assert.equal(render().popup, null, 'clicking again closes');
+});
+
+test('the popup follows the DERIVED state — a tool run reaches the peek, not just the caption', () => {
+  // The dock derives `tool` from a dispatched call; the popup must be pinned to
+  // that same state, or the caption and the artwork disagree (which is exactly
+  // the bug this asserts against).
+  // A dispatched call while the turn runs = `tool` (busy AND phase 'start').
+  const render = mount({
+    t: tKey,
+    session: { running: true },
+    chat: { runningCalls: [{ phase: 'start', name: 'bash' }] },
+  });
+  render().click();
+  const tree = render();
+  const panel = tree.popup.type(tree.popup.props);
+  const preview = panel.children.find((c: any) => c && typeof c.type === 'function');
+  assert.equal(panel.props['aria-label'], 'S:toolNamed', 'the caption names the running tool');
+  assert.equal(preview.props.state, 'tool', 'and the big picture plays THAT state');
+  assert.equal(preview.props.follow, true, 'from the dock\'s take channel');
 });
 
 test('the popup pets from anywhere in its panel — reaction fed to the sprite and echoed in the caption', () => {
@@ -442,7 +466,7 @@ test('settings page: 按动作 browses the library live, including unused action
   assert.ok(textOf(cells()[0]).includes('S:settings.usedByN'), 'the cell says which states play it');
   // Actions nothing plays are the point of this view.
   const art = customWithPalette() as any;
-  art.grids[AVATAR_GRID].library.push({ id: 'hop', frameMs: 400, frames: [{ rows: store.blankRows(AVATAR_GRID) }] });
+  art.actions.push(actionOf2({ id: 'hop' }));
   store.saveStored({ skin: 'custom', custom: art });
   store.refreshActiveSkin();
   assert.ok(textOf(cells()[1]).includes('S:settings.unusedAction'),
@@ -581,7 +605,7 @@ test('编辑 · 按状态 is the assignment surface: a dropdown, its checkboxes 
   // the top of the list (the library order underneath never changes).
   inputsIn(rowFor('hop act'))[0].props.onChange({ target: { checked: true } });
   let saved = store.loadStored().custom!;
-  assert.deepEqual(saved.grids[AVATAR_GRID]!.states.tool, ['hop'], 'ticking adds the reference');
+  assert.deepEqual(saved.states.tool, ['hop'], 'ticking adds the reference');
   assert.ok(optionLabels(render()).find((l: string) => l.startsWith('S:tool'))!
     .includes('S:settings.actionCount'), 'and the dropdown counts it');
   assert.equal(textOf(rows()[0]).startsWith('hop act'), true, 'the ticked row is first');
@@ -597,7 +621,7 @@ test('编辑 · 按状态 is the assignment surface: a dropdown, its checkboxes 
     'a non-empty selection offers 全选 and 清空 — no copy, no paste');
   findAllContaining(render(), 'S:settings.selectAll')[0].props.onClick();
   saved = store.loadStored().custom!;
-  assert.deepEqual(saved.grids[AVATAR_GRID]!.states.tool, ['idle-1', 'hop'], 'all means all');
+  assert.deepEqual(saved.states.tool, ['idle-1', 'hop'], 'all means all');
   assert.deepEqual(checks().map((c: any) => c.props.checked), [true, true],
     'and everything is in the ticked half');
   assert.deepEqual(groups(), [],
@@ -606,7 +630,7 @@ test('编辑 · 按状态 is the assignment surface: a dropdown, its checkboxes 
   assert.deepEqual(ops(), ['S:settings.selectAll'],
     'and 清空 disappears on the empty selection it just produced');
   saved = store.loadStored().custom!;
-  assert.equal(saved.grids[AVATAR_GRID]!.states.tool, undefined,
+  assert.equal(saved.states.tool, undefined,
     'clearing removes the key — an empty selection IS the fallback');
   const resolved = store.resolveSkin(store.loadStored());
   assert.equal(resolved.states.tool, resolved.states.idle, 'and the state really does follow idle');
@@ -857,41 +881,45 @@ test('skin picker: the custom slot seeds itself from the active skin', () => {
 // The studio's 画笔 row: six free brushes.  Painting bakes a brush's COLOUR
 // into the pixels, so editing a brush never repaints the board — and there is
 // nothing to add and no palette to manage.
+const face = (grid: number = AVATAR_GRID) => ({ rows: store.blankRows(grid) });
+const frameOf = (o: { rows?: string[]; body?: boolean; dy?: number; dx?: number; ms?: number } = {}): any => {
+  const cells: Record<number, unknown> = { [AVATAR_GRID]: { rows: o.rows || store.blankRows(AVATAR_GRID) } };
+  if (o.body) cells[BODY_GRID] = face(BODY_GRID);
+  const f: Record<string, unknown> = { cells };
+  if (o.dy !== undefined) f.dy = o.dy;
+  if (o.dx !== undefined) f.dx = o.dx;
+  if (o.ms !== undefined) f.ms = o.ms;
+  return f;
+};
+const actionOf2 = (o: { id: string; name?: string; frameMs?: number; frames?: unknown[] }): any => {
+  const a: Record<string, unknown> = { id: o.id, frameMs: o.frameMs ?? 400, frames: o.frames || [frameOf()] };
+  if (o.name) a.name = o.name;
+  return a;
+};
+
 const customWithPalette = () => ({
   palette: SKINS['whale-chan'].palette.slice(0, 7),   // transparency + 6 colours
-  grids: {
-    [AVATAR_GRID]: {
-      library: [{ id: 'idle-1', frameMs: 400, frames: [{ rows: store.blankRows(AVATAR_GRID) }] }],
-      states: { idle: ['idle-1'] },
-    },
-  },
+  actions: [actionOf2({ id: 'idle-1' })],
+  states: { idle: ['idle-1'] },
 });
 
 // The library model's two addressing helpers: an ACTION is found by id, and a
 // state's animation is whatever its ids resolve to.
-const actionOf = (art: any, id: string, grid: number = AVATAR_GRID) =>
-  art.grids[grid].library.find((a: any) => a.id === id);
-const idleAction = (art: any, grid: number = AVATAR_GRID) => {
-  const g = art.grids[grid];
-  return g.library.find((a: any) => a.id === g.states.idle[0]);
-};
-/** The rows of one frame of the action the idle state plays. */
+const actionOf = (art: any, id: string) => art.actions.find((a: any) => a.id === id);
+const idleAction = (art: any) => actionOf(art, art.states.idle[0]);
+/** The rows of one FACE of one frame of the action the idle state plays. */
 const idleRows = (art: any, frame = 0, grid: number = AVATAR_GRID) =>
-  idleAction(art, grid).frames[frame].rows;
+  store.cellFor(idleAction(art).frames[frame], grid).rows;
 
 // Two named actions on the avatar grid: idle plays the first, the second is
 // free — the shape almost every studio test below wants.
 const studioFixture = () => ({
   palette: SKINS['whale-chan'].palette.slice(0, 7),
-  grids: {
-    [AVATAR_GRID]: {
-      library: [
-        { id: 'idle-1', name: 'idle act', frameMs: 400, frames: [{ rows: store.blankRows(AVATAR_GRID) }] },
-        { id: 'hop', name: 'hop act', frameMs: 400, frames: [{ rows: store.blankRows(AVATAR_GRID) }] },
-      ],
-      states: { idle: ['idle-1'] },
-    },
-  },
+  actions: [
+    actionOf2({ id: 'idle-1', name: 'idle act' }),
+    actionOf2({ id: 'hop', name: 'hop act' }),
+  ],
+  states: { idle: ['idle-1'] },
 });
 
 const byClass = (el: any, frag: string, out: any[] = []): any[] => {
@@ -1012,7 +1040,7 @@ test('pixel studio: a free stroke saves as custom on the full grid', () => {
 test('pixel studio: an imported accent can be seen and removed, not silently stuck', () => {
   clearStorage();
   const art = customWithPalette() as any;
-  art.grids[AVATAR_GRID].library[0].frames[0].prop = { x: 1, y: 1, rows: ['01', '01'] };
+  art.actions[0].frames[0].cells[AVATAR_GRID].prop = { x: 1, y: 1, rows: ['01', '01'] };
   assert.deepEqual(store.validateArtwork(art), [], 'the fixture is legal artwork');
   store.saveStored({ skin: 'custom', custom: art });
   store.refreshActiveSkin();
@@ -1054,14 +1082,14 @@ test('pixel studio: follows the active skin; first stroke forks to custom with t
   assert.ok(actionOptionLabels(render()).every((l: string) =>
     l.includes('S:settings.usedByN') || l.includes('S:settings.unusedAction')),
     'and how many states play it');
-  assert.equal(actionSelect(render()).props.value, store.skinLibrary('whale-chan', AVATAR_GRID)[0].id,
+  assert.equal(actionSelect(render()).props.value, store.skinLibrary('whale-chan')[0].id,
     'the board starts on the library\'s first action');
   // Stroke: forks to custom with all states carried over.
   findDeep(render(), 'status-pet-grid').children.flat()[1].children.flat()[3].props.onPointerDown();
   const saved = store.loadStored();
   assert.equal(saved.skin, 'custom', 'the stroke forks to custom');
-  assert.equal(Object.keys(saved.custom!.grids[AVATAR_GRID]!.states).length, 11, 'the fork carries every state');
-  assert.equal(saved.custom!.grids[AVATAR_GRID]!.library.length, 106,
+  assert.equal(Object.keys(saved.custom!.states).length, 11, 'the fork carries every state');
+  assert.equal(saved.custom!.actions.length, 106,
     'and the whole action library, once — the states only reference it');
   assert.equal(store.pixelAt(idleRows(saved.custom!)[1], 3), '01', 'the stroke landed');
   clearStorage();
@@ -1085,7 +1113,7 @@ test('pixel studio: the 动作 dropdown picks what the board edits, per action',
   // And the stroke lands on THAT action — idle's art is untouched.
   cell(2, 2).props.onPointerDown();
   const saved = store.loadStored().custom!;
-  assert.equal(store.pixelAt(actionOf(saved, 'hop').frames[0].rows[2], 2), '01',
+  assert.equal(store.pixelAt(store.cellFor(actionOf(saved, 'hop').frames[0], AVATAR_GRID).rows[2], 2), '01',
     'the stroke went to the action the dropdown names');
   assert.equal(store.pixelAt(idleRows(saved)[2], 2), store.TRANSPARENT,
     'and not to the one it was on before');
@@ -1118,13 +1146,13 @@ test("assignments: a built-in's state assignment is a stored DIFF, and nothing f
   const props: any = { t: tKey, skin: 'whale-chan', grid: AVATAR_GRID, state: 'idle',
     onStateChange: (s: string) => { props.state = s; } };
   const render = mountPlain(StateAssignments, props);
-  const lib = store.skinLibrary('whale-chan', AVATAR_GRID);
+  const lib = store.skinLibrary('whale-chan');
   // Looked up by NAME, not by position: the list shows this state's own ticks
   // first, so an index into the library is no longer an index into the rows.
   const rowFor = (id: string) =>
     findAllDeep(render(), 'status-pet-library-row')
       .find((r: any) => textOf(r).startsWith(lib.find((a) => a.id === id)!.name!))!;
-  const authored = store.skinArtwork('whale-chan')!.grids[AVATAR_GRID]!.states;
+  const authored = store.skinArtwork('whale-chan')!.states;
   const authoredTool = authored.tool!.length;
 
   // The authored assignment is what the list shows first.
@@ -1137,17 +1165,16 @@ test("assignments: a built-in's state assignment is a stored DIFF, and nothing f
   const saved: any = store.loadStored();
   assert.equal(saved.skin, 'whale-chan', 'the active skin is still the built-in');
   assert.equal(saved.custom, undefined, 'nothing forked into 我的创作');
-  assert.deepEqual(Object.keys(saved.builtinStates!['whale-chan']), ['32'], 'stored per crop');
-  assert.deepEqual(Object.keys(saved.builtinStates!['whale-chan']['32']), ['tool'],
-    'and only the state that changed');
-  assert.deepEqual(saved.builtinStates!['whale-chan']['32'].tool.slice(-1), ['chi-niangao']);
+  assert.deepEqual(Object.keys(saved.builtinStates!['whale-chan']), ['tool'],
+    'one flat diff, and only the state that changed');
+  assert.deepEqual(saved.builtinStates!['whale-chan'].tool.slice(-1), ['chi-niangao']);
   assert.equal(store.activeSkin().states.tool.takes.length, authoredTool + 1,
     'ACTIVE (dock/popup) picked it up');
   assert.equal(store.resolveNamedSkin('whale-chan', AVATAR_GRID)!.states.tool.takes.length, authoredTool + 1,
     'and so did the named resolution 预览 uses');
-  assert.ok(store.skinLibrary('whale-chan', AVATAR_GRID).find((a) => a.id === 'chi-niangao')!
+  assert.ok(store.skinLibrary('whale-chan').find((a) => a.id === 'chi-niangao')!
     .usedBy.includes('tool'), 'the library read-out says who plays it now');
-  assert.ok(store.seedArtworkFrom('whale-chan').grids[AVATAR_GRID]!.states.tool!.includes('chi-niangao'),
+  assert.ok(store.seedArtworkFrom('whale-chan').states.tool!.includes('chi-niangao'),
     'and 我的创作 would start from what the user sees');
 
   // Emptying a state is stored as such: it deliberately follows idle instead of
@@ -1155,13 +1182,13 @@ test("assignments: a built-in's state assignment is a stored DIFF, and nothing f
   for (const id of [...authored.tool!, 'chi-niangao']) {
     inputsIn(rowFor(id))[0].props.onChange({ target: { checked: false } });
   }
-  assert.deepEqual((store.loadStored() as any).builtinStates['whale-chan']['32'].tool, [],
+  assert.deepEqual((store.loadStored() as any).builtinStates['whale-chan'].tool, [],
     'an explicitly emptied state is stored empty');
   const skin = store.resolveNamedSkin('whale-chan', AVATAR_GRID)!;
   assert.equal(skin.states.tool, skin.states.idle, 'and it resolves to idle');
 
   // A stale id can never blank the pet: it is dropped on the way in.
-  store.saveStored({ builtinStates: { 'whale-chan': { '32': { tool: ['no-such-action'] } } } });
+  store.saveStored({ builtinStates: { 'whale-chan': { tool: ['no-such-action'] } } });
   const stale = store.resolveNamedSkin('whale-chan', AVATAR_GRID)!;
   assert.equal(stale.states.tool, stale.states.idle, 'an unknown id is dropped, not rendered');
   assert.equal(stale.states.idle.takes.length, authored.idle!.length, 'while idle is untouched');
@@ -1176,7 +1203,7 @@ test('assignments: 清空 works on EVERY state — 空闲 keeps one, because it 
     onStateChange: (s: string) => { props.state = s; } };
   const render = mountPlain(StateAssignments, props);
   const clear = () => findAllByText(render(), 'S:settings.clearSelection')[0];
-  const idle = () => store.loadStored().custom!.grids[AVATAR_GRID]!.states.idle;
+  const idle = () => store.loadStored().custom!.states.idle;
 
   // 空闲 is the state the dropdown opens on, and the rule that shapes its two
   // buttons is printed — not left to a title a button cannot show.
@@ -1200,7 +1227,7 @@ test('assignments: 清空 works on EVERY state — 空闲 keeps one, because it 
   inputsIn(findAllDeep(render(), 'status-pet-library-row')[1])[0]
     .props.onChange({ target: { checked: true } });
   clear().props.onClick();
-  assert.equal(store.loadStored().custom!.grids[AVATAR_GRID]!.states.tool, undefined,
+  assert.equal(store.loadStored().custom!.states.tool, undefined,
     'a non-idle state clears to empty — the state follows idle');
   clearStorage();
 });
@@ -1230,12 +1257,12 @@ test('assignments: the search box narrows the list, and 全选 only ticks what i
   // 全选 is AIMED: it ticks what the filter listed, on top of what the state
   // already plays — replacing would silently drop ticks the filter hides.
   findAllContaining(render(), 'S:settings.selectAll')[0].props.onClick();
-  assert.deepEqual(store.loadStored().custom!.grids[AVATAR_GRID]!.states.tool, ['hop'],
+  assert.deepEqual(store.loadStored().custom!.states.tool, ['hop'],
     'only the listed action was ticked');
 
   search().props.onChange({ target: { value: '' } });
   findAllContaining(render(), 'S:settings.selectAll')[0].props.onClick();
-  assert.deepEqual(store.loadStored().custom!.grids[AVATAR_GRID]!.states.tool, ['idle-1', 'hop'],
+  assert.deepEqual(store.loadStored().custom!.states.tool, ['idle-1', 'hop'],
     'and unfiltered it adds the rest, in library order');
 
   search().props.onChange({ target: { value: 'nothing matches this' } });
@@ -1263,7 +1290,7 @@ test('pixel studio × assignments: one edit to a SHARED action changes every sta
   stateSelect(assign()).props.onChange({ target: { value: 'done' } });
   inputsIn(rows()[1])[0].props.onChange({ target: { checked: true } });
   let saved = store.loadStored().custom!;
-  assert.deepEqual(store.usedBy(saved, AVATAR_GRID, 'hop').sort(), ['done', 'tool']);
+  assert.deepEqual(store.usedBy(saved, 'hop').sort(), ['done', 'tool']);
   assert.ok(textOf(rows()[1]).includes('S:settings.usedByN'), 'the row says how many states play it');
 
   // Paint one pixel of that same action (the drawing half): BOTH states move.
@@ -1275,7 +1302,7 @@ test('pixel studio × assignments: one edit to a SHARED action changes every sta
   saved = store.loadStored().custom!;
   assert.equal(store.pixelAt(idleRows(saved)[2], 2), store.TRANSPARENT,
     'idle\'s own action is untouched — the stroke went to the shared one');
-  assert.equal(store.pixelAt(actionOf(saved, 'hop').frames[0].rows[2], 2), '01',
+  assert.equal(store.pixelAt(store.cellFor(actionOf(saved, 'hop').frames[0], AVATAR_GRID).rows[2], 2), '01',
     'the shared action took the stroke');
   const after = store.resolveSkin(store.loadStored());
   assert.notEqual(after.states.tool, before.states.tool, 'tool re-resolved to the edited action');
@@ -1292,8 +1319,8 @@ test('pixel studio: 导入来自内置库 — 覆盖当前动作，id 和状态�
   store.saveStored({ skin: 'custom', custom: customWithPalette() });
   store.refreshActiveSkin();
   const render = mountPlain(PixelEditor, { t: tKey });
-  const lib = () => store.loadStored().custom!.grids[AVATAR_GRID]!.library;
-  const builtin = store.skinLibrary('whale-chan', AVATAR_GRID);
+  const lib = () => store.loadStored().custom!.actions;
+  const builtin = store.skinLibrary('whale-chan');
   const source = builtin.find((a) => a.id === 'chi-niangao')!;
   assert.equal(lib().length, 1, 'the fixture starts with one action');
   const idBefore = lib()[0].id;
@@ -1318,12 +1345,12 @@ test('pixel studio: 导入来自内置库 — 覆盖当前动作，id 和状态�
   const after = lib();
   assert.equal(after.length, 1, 'importing does NOT grow the library');
   assert.equal(after[0].id, idBefore, 'the id is kept, so the state references still resolve');
-  assert.deepEqual(store.usedBy(store.loadStored().custom!, AVATAR_GRID, idBefore), ['idle'],
+  assert.deepEqual(store.usedBy(store.loadStored().custom!, idBefore), ['idle'],
     'and idle still plays it');
   assert.equal(after[0].name, '吃年糕', 'the source name comes along');
   assert.equal(after[0].origin, 'chi-niangao', 'and its provenance');
   assert.equal(after[0].frames.length, source.frames, 'the whole animation arrives');
-  assert.notDeepEqual(after[0].frames[0].rows, store.blankRows(AVATAR_GRID), 'with real pixels');
+  assert.notDeepEqual(store.cellFor(after[0].frames[0], AVATAR_GRID).rows, store.blankRows(AVATAR_GRID), 'with real pixels');
   assert.deepEqual(store.validateArtwork(store.loadStored().custom!), [],
     'the imported colours were re-pointed at THIS artwork\'s palette');
   assert.equal(findAllByText(render(), 'S:settings.importedOne').length, 1,
@@ -1345,7 +1372,7 @@ test('pixel studio: 导入 from my own library copies that content into the curr
   store.saveStored({ skin: 'custom', custom: studioFixture() });
   store.refreshActiveSkin();
   const render = mountPlain(PixelEditor, { t: tKey });
-  const lib = () => store.loadStored().custom!.grids[AVATAR_GRID]!.library;
+  const lib = () => store.loadStored().custom!.actions;
 
   // Give 'hop' a pixel of its own, then come back to 'idle-1'.
   actionSelect(render()).props.onChange({ target: { value: 'hop' } });
@@ -1358,10 +1385,11 @@ test('pixel studio: 导入 from my own library copies that content into the curr
   const after = lib();
   assert.equal(after.length, 2, 'no new slot: the content moved into the one being edited');
   assert.deepEqual(after.map((a: any) => a.id), ['idle-1', 'hop']);
-  assert.equal(store.pixelAt(after[0].frames[0].rows[2], 2), '01',
+  assert.equal(store.pixelAt(store.cellFor(after[0].frames[0], AVATAR_GRID).rows[2], 2), '01',
     'idle-1 now carries hop\'s pixels');
   assert.equal(after[0].name, 'hop act', 'and its name');
-  assert.equal(store.pixelAt(after[1].frames[0].rows[2], 2), '01', 'while hop itself is untouched');
+  assert.equal(store.pixelAt(store.cellFor(after[1].frames[0], AVATAR_GRID).rows[2], 2), '01',
+    'while hop itself is untouched');
   assert.deepEqual(store.validateArtwork(store.loadStored().custom!), [], 'the artwork stays valid');
   clearStorage();
 });
@@ -1374,7 +1402,7 @@ test('pixel studio: 新建动作 / 删除动作, and delete refuses to strand id
   store.saveStored({ skin: 'custom', custom: studioFixture() });
   store.refreshActiveSkin();
   const render = mountPlain(PixelEditor, { t: tKey });
-  const size = () => store.loadStored().custom!.grids[AVATAR_GRID]!.library.length;
+  const size = () => store.loadStored().custom!.actions.length;
   const del = () => findAllByLabel(render(), 'S:settings.deleteAction')[0];
 
   // The selected action is the only one idle plays: deleting it would leave
@@ -1391,7 +1419,7 @@ test('pixel studio: 新建动作 / 删除动作, and delete refuses to strand id
   findAllByLabel(render(), 'S:settings.newAction')[0].props.onClick();
   assert.equal(size(), 3, '新建动作 always mints an action');
   assert.equal(actionSelect(render()).props.value,
-    store.loadStored().custom!.grids[AVATAR_GRID]!.library[2].id,
+    store.loadStored().custom!.actions[2].id,
     'and puts it on the board');
 
   assert.equal(del().props.disabled, false, 'once it is not idle\'s only action, delete is available');
@@ -1404,17 +1432,16 @@ test('pixel studio: 新建动作 / 删除动作, and delete refuses to strand id
 test('预览 · 按动作: 批量删除 ticks several actions, and a dialog confirms the removal', () => {
   clearStorage();
   const fixture: any = studioFixture();
-  const grid = fixture.grids[AVATAR_GRID];
-  grid.library.push(
-    { id: 'sleep-a', name: 'sleep act', frameMs: 400, frames: [{ rows: store.blankRows(AVATAR_GRID) }] },
-    { id: 'tool-a', name: 'tool act', frameMs: 400, frames: [{ rows: store.blankRows(AVATAR_GRID) }] },
+  fixture.actions.push(
+    actionOf2({ id: 'sleep-a', name: 'sleep act' }),
+    actionOf2({ id: 'tool-a', name: 'tool act' }),
   );
   // Two actions shared by one state, so the delete has real references to strip.
-  grid.states.tool = ['sleep-a', 'tool-a'];
+  fixture.states.tool = ['sleep-a', 'tool-a'];
   store.saveStored({ skin: 'custom', custom: fixture });
   store.refreshActiveSkin();
   const render = mountPlain(SettingsPage, { t: tKey });
-  const ids = () => store.loadStored().custom!.grids[AVATAR_GRID]!.library.map((a) => a.id);
+  const ids = () => store.loadStored().custom!.actions.map((a) => a.id);
   const checks = () => findAllDeep(render(), 'status-pet-gallery-check');
   const del = () => findAllContaining(render(), 'S:settings.deleteSelected')[0];
   const dialog = () => findDeep(render(), 'status-pet-confirm');
@@ -1453,7 +1480,7 @@ test('预览 · 按动作: 批量删除 ticks several actions, and a dialog conf
   findAllContaining(render(), 'S:settings.confirmDelete')[0].props.onClick();
   assert.equal(dialog(), null, 'the dialog closes on confirm');
   assert.deepEqual(ids(), ['idle-1', 'hop'], 'one write removed both');
-  assert.equal(store.loadStored().custom!.grids[AVATAR_GRID]!.states.tool, undefined,
+  assert.equal(store.loadStored().custom!.states.tool, undefined,
     'and every state that referenced them lost just those references');
   assert.deepEqual(store.validateArtwork(store.loadStored().custom!), [], 'the document stays valid');
   assert.ok(hintSays(render(), 'S:settings.actionsRemoved'), 'and it says what happened');
@@ -1571,15 +1598,32 @@ test('pixel studio: the 128 draft generates from the avatar; the body crop resol
   // the empty-state card offers the draft generator.
   const render = mountPlain(PixelEditor, { t: tKey, grid: BODY_GRID });
   const gen = findAllByText(render(), 'S:settings.genBody');
-  assert.ok(gen.length > 0, 'the draft generator is offered while the body is empty');
+  assert.ok(gen.length > 0, 'the draft generator is offered while the body face is empty');
+  assert.ok(findAllByText(render(), 'S:settings.genBodyAll').length > 0,
+    'and the same draft is offered for every action at once');
+  assert.equal(store.hasBody(store.loadStored().custom!), false, 'the artwork starts body-less');
   gen[0].props.onClick();
   const saved = store.loadStored().custom!;
-  assert.ok(saved.grids[BODY_GRID], 'the 128px grid was generated');
+  assert.ok(store.hasActionBody(actionOf(saved, 'idle-1')), 'the selected action got its 128 face');
+  assert.equal(store.hasActionBody(actionOf(saved, 'hop')), false,
+    'and the action nobody asked about is untouched — the body is per action');
   const hdIdle = idleRows(saved, 0, BODY_GRID);
   assert.ok(hdIdle.length === BODY_GRID && hdIdle.every((r: string) => store.rowPixels(r) === BODY_GRID),
     'the draft is a full 128px frame');
-  assert.equal(store.resolveNamedSkin('custom', BODY_GRID)!.grid, BODY_GRID, 'the body crop resolves');
+  assert.equal(store.resolveNamedSkin('custom', BODY_GRID)!.grid, BODY_GRID, 'the body face resolves now');
   assert.equal(findDeep(render(), 'status-pet-grid').children.flat().length, BODY_GRID, 'the board shows 128 rows');
+  // The 4× relationship IS the draft: every draft pixel is the avatar's, doubled
+  // twice — that is why a missing body can be shown at all.
+  const avatarRows = idleRows(saved, 0, AVATAR_GRID);
+  assert.equal(hdIdle[0], avatarRows[0].replace(/(..)/g, '$1$1$1$1'), 'the draft is the avatar at 4×');
+  // 为所有动作生成草稿 fills the rest in, without touching what already exists.
+  // It lives on the empty-state card, which is per action — so it is reachable
+  // again by selecting an action that still has no body face.
+  actionSelect(render()).props.onChange({ target: { value: 'hop' } });
+  findAllByText(render(), 'S:settings.genBodyAll')[0].props.onClick();
+  const all = store.loadStored().custom!;
+  assert.ok(all.actions.every((a: any) => store.hasActionBody(a)), 'every action has a body face now');
+  assert.deepEqual(store.validateArtwork(all), [], 'and the document is still valid');
   clearStorage();
 });
 

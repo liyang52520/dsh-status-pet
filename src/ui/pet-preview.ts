@@ -12,8 +12,13 @@
 //   crop        pin the ACTIVE skin to one crop (32 | 128) — the settings
 //               gallery's 32/128 switch; same as `best` but at a chosen crop.
 //   state       pin a state name, showing its real face AND motion — the
-//               settings state gallery.  Without it the pet idles and is
-//               pettable.
+//               settings state gallery, and the click popup (which pins the
+//               dock's derived state).
+//   follow      mirror the DOCK's take and phase instead of rolling this
+//               canvas's own (the click popup): the peek plays the exact
+//               animation the pet is doing, because v9 gives both faces the one
+//               action library and the one state table.  A follower whose state
+//               differs from the dock's (a reaction) rolls its own.
 //   reaction    a transient reaction owned by the caller (the popup pets from
 //               anywhere in its panel); it outranks the pinned state and the
 //               component's own click reaction.
@@ -48,6 +53,8 @@ export interface PetPreviewProps {
    * chosen crop); a missing body falls back to the avatar. */
   crop?: number;
   state?: string;
+  /** Mirror the dock's take and phase (the click popup) — see `LoopRole`. */
+  follow?: boolean;
   /** A transient reaction handed down by the owner (the popup pets the pet
    * from anywhere in its panel, so the reaction lives there and is fed to the
    * one canvas).  It outranks the pinned state exactly like the component's
@@ -108,11 +115,12 @@ export function PetPreview(props: PetPreviewProps | null) {
     const scaleFor = (skin: ResolvedSkin) =>
       props.scale || (skin.grid === AVATAR_GRID ? 4 : 1);
     const takeId = props.takeId;
+    const role = props.follow ? 'follow' as const : 'free' as const;
     // Nothing pinned: follow the store's ACTIVE skin per frame (the store keeps
     // it fresh), which needs no subscription at all.
     if (takeId === undefined && skinName === undefined && !crop && !best) {
       skinRef.current = undefined;
-      return startLoop(canvas, faceRef, reducedRef, scaleFor, null, takePinRef, zoom);
+      return startLoop(canvas, faceRef, reducedRef, scaleFor, null, takePinRef, zoom, role);
     }
     // One resolver for every pinned shape.  A pinned ACTION outranks the rest:
     // it is a whole skin of one action, so it fits `skinName` (the studio) and
@@ -147,12 +155,12 @@ export function PetPreview(props: PetPreviewProps | null) {
     };
     update();
     const unsubSkin = onSkinChange(update);
-    const stopLoop = startLoop(canvas, faceRef, reducedRef, scaleFor, skinRef, takePinRef, zoom);
+    const stopLoop = startLoop(canvas, faceRef, reducedRef, scaleFor, skinRef, takePinRef, zoom, role);
     return () => {
       stopLoop();
       unsubSkin();
     };
-  }, [skinName, best, crop, props.scale, props.zoom, props.grid, props.takeId]);
+  }, [skinName, best, crop, props.scale, props.zoom, props.grid, props.takeId, props.follow]);
 
   function onClick() {
     react('petted');

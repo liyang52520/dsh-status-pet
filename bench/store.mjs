@@ -1,5 +1,5 @@
 // The store hot paths an editing session actually pays for:
-//   * loading a seeded 我的创作 document (the built-in library, both crops)
+//   * loading a seeded 我的创作 document (the built-in library, both faces)
 //   * the FIRST look at it — validation and resolution cold
 //   * ONE paint stroke (the editor's commit: mutate + persist + re-resolve)
 //   * a burst of strokes (what a drag actually is)
@@ -25,7 +25,7 @@ time('installSkinArtwork + first resolve', () => {
   store.resolveBestSkin();
 }, 3);
 
-section('the seeded 我的创作 document (both crops)');
+section('the seeded 我的创作 document (both faces)');
 let custom;
 time('seedArtworkFrom(whale-chan)', () => { custom = store.seedArtworkFrom('whale-chan'); }, 3);
 time('JSON.stringify(custom) — one coalesced write', () => JSON.stringify(custom), 3);
@@ -45,21 +45,18 @@ time('the same 24 asks again (warm — the common case)', () => {
   for (let i = 0; i < 24; i++) store.resolveTakeSkin('custom', AVATAR_GRID, 'daiji-huxi-xiuxian-' + i);
 }, 3);
 
-section('one paint stroke on the 128px body (the editor commit path)');
+section('one paint stroke on the 128px face (the editor commit path)');
 store.saveStored({ skin: 'custom', custom });
-let art = store.loadCustomArtwork();
-const id = store.gridArtwork(art, BODY_GRID).library[0].id;
+const id = store.loadCustomArtwork().actions[0].id;
 const stroke = () => {
   const cur = store.loadCustomArtwork();
-  const grid = store.gridArtwork(cur, BODY_GRID);
-  const action = grid.library.find((a) => a.id === id);
-  const frames = action.frames.map((f, i) => (i === 0
-    ? { ...f, rows: store.paintCell(f.rows, 3, 3, '01') }
-    : f));
-  const next = store.replaceLibraryTake(cur, BODY_GRID, id, { frameMs: action.frameMs, frames });
+  const action = cur.actions.find((a) => a.id === id);
+  const base = action.frames[0].cells[BODY_GRID];
+  const next = store.replaceFrameCell(cur, id, 0, BODY_GRID,
+    { rows: store.paintCell(base.rows, 3, 3, '01') });
   store.saveStored({ skin: 'custom', custom: next });
 };
-time('paintCell + replaceLibraryTake + saveStored', stroke, 5);
+time('paintCell + replaceFrameCell + saveStored', stroke, 5);
 time('  …and re-resolve the studio preview', () => {
   store.resolveTakeSkin('custom', BODY_GRID, id);
 }, 5);
@@ -84,4 +81,8 @@ time('saveStored({ skin: whale-chan })', () => store.saveStored({ skin: 'whale-c
 time('saveStored({ skin: custom })', () => store.saveStored({ skin: 'custom' }), 5);
 
 section('library read-outs');
-time('skinLibrary(custom, 32) — 106 actions × usedBy', () => store.skinLibrary('custom', AVATAR_GRID), 5);
+time('skinLibrary(custom) — 106 actions × usedBy', () => store.skinLibrary('custom'), 5);
+time('a resolution of BOTH faces (the pairing guarantee)', () => {
+  store.resolveNamedSkin('custom', AVATAR_GRID);
+  store.resolveNamedSkin('custom', BODY_GRID);
+}, 5);

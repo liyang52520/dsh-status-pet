@@ -58,6 +58,10 @@ function makeTake(base: number, index: number, state: string, frameMs = FRAME_MS
     frameMs,
     frames: Array.from({ length: FRAMES }, (_, frame) => ({
       ms: frameMs,
+      // v9 keeps the whole-frame offset on the RESOLVED FRAME (already scaled
+      // for the grid it was resolved at), not on the sprite.
+      dx: 0,
+      dy: 0,
       sprite: { w: 1, h: 1, px: new Uint8Array([1 + id * FRAMES + frame]), dx: 0, dy: 0 },
     })),
   };
@@ -84,18 +88,21 @@ const { TUNING } = await import('../src/pet/behavior.ts');
 const T0 = 5000;
 const at = (tick: number) => T0 + tick * FRAME_MS;
 
-function decode(value: number) {
+function decode(input: number | null) {
+  const value = input as number;
   const take = ((value - 1) / FRAMES) | 0;
   const where = TAKES.get(take);
   assert.ok(where, `take ${take} is one of the skin's`);
   return { take, frame: (value - 1) % FRAMES, state: where!.state, index: where!.index };
 }
 
-/** A running player on `skin`, following `state`. */
-function player(skin: any, state: string, pin?: { current: number }) {
+/** A running player on `skin`, following `state`.  `role` decides whether it
+ *  LEADS the take channel (the dock) or FOLLOWS it (the click popup). */
+function player(skin: any, state: string, pin?: { current: number }, role?: 'lead' | 'follow') {
   const canvas: any = { width: 0, height: 0, style: {}, getContext: () => ctxStub };
   const faceRef = { current: state };
-  const stop = startLoop(canvas as HTMLCanvasElement, faceRef, { current: false }, () => 1, { current: skin }, pin ?? null);
+  const stop = startLoop(canvas as HTMLCanvasElement, faceRef, { current: false }, () => 1,
+    { current: skin }, pin ?? null, 1, role);
   return {
     faceRef,
     stop,
@@ -248,5 +255,152 @@ test('a pinned take (the editor preview) ignores the rotation', () => {
     }
   } finally {
     p.stop();
+  }
+});
+
+// ── the take channel: the dock leads, the click popup follows ──
+//
+// v9 gives both faces the ONE action library and the ONE state table, so the
+// only way the dock and the popup could still show different animations is the
+// PLAYER rolling twice.  These tests drive two real players in one shared
+// ticker (which is exactly how the two layers run) and assert that the follower
+// draws the leader's take AND phase, that a different state falls back to its
+// own rotation, and that a dead leader is not mirrored from.
+
+/** A canvas whose ctx records the frame it painted (and where). */
+function trackedCanvas() {
+  const seen: { value: number | null; x: number | null; y: number | null } = { value: null, x: null, y: null };
+  const ctx: any = {
+    imageSmoothingEnabled: false,
+    fillStyle: '',
+    clearRect() { seen.value = null; },
+    fillRect(x: number, y: number) {
+      const value = PALETTE.indexOf(ctx.fillStyle);
+      assert.ok(value > 0, 'the frame painted a palette colour');
+      if (seen.value === null) {
+        seen.value = value;
+        seen.x = x;
+        seen.y = y;
+      }
+    },
+    drawImage() { throw new Error('no DOM canvas in this test: drawImage must not be reachable'); },
+  };
+  const canvas: any = { width: 0, height: 0, style: {}, getContext: () => ctx };
+  return { canvas, seen };
+}
+
+/** One frame of the shared ticker: EVERY registered player ticks with the same
+ *  `now`, which is what makes a mirrored phase land on the same frame. */
+function tickAll(now: number) {
+  const cb = pendingFrame;
+  assert.ok(cb, 'the shared ticker is running');
+  pendingFrame = null;
+  cb(now);
+}
+
+test('the offset drawn is the RESOLVED FRAME\'s, not the sprite\'s', () => {
+  const { canvas, seen } = trackedCanvas();
+  const skin: any = {
+    name: 'offset',
+    palette: PALETTE,
+    grid: 32,
+    canvasW: 40,
+    canvasH: 40,
+    baseY: 4,
+    states: {
+      idle: {
+        takes: [{
+          frameMs: FRAME_MS,
+          frames: Array.from({ length: FRAMES }, () => ({
+            ms: FRAME_MS,
+            dx: 2,
+            dy: -1,
+            sprite: { w: 1, h: 1, px: new Uint8Array([1]), dx: 0, dy: 0 },
+          })),
+        }],
+      },
+    },
+  };
+  const stop = startLoop(canvas, { current: 'idle' }, { current: false }, () => 1, { current: skin });
+  try {
+    tickAll(at(0));
+    assert.equal(seen.x, 4 + 2, 'the sprite is drawn at padX + the FRAME\'s dx');
+    assert.equal(seen.y, 4 - 1, 'and baseY + the FRAME\'s dy');
+  } finally {
+    stop();
+  }
+});
+
+test('a follower draws the leader\'s take and phase — the peek is the same animation', () => {
+  const skin = makeSkin(4, 4);
+  const dock = trackedCanvas();
+  const peek = trackedCanvas();
+  const dockStop = startLoop(dock.canvas, { current: 'idle' }, { current: false }, () => 1,
+    { current: skin }, null, 1, 'lead');
+  const peekStop = startLoop(peek.canvas, { current: 'idle' }, { current: false }, () => 1,
+    { current: skin }, null, 1, 'follow');
+  try {
+    for (let tick = 0; tick < 24; tick++) {
+      dock.seen.value = null;
+      peek.seen.value = null;
+      tickAll(at(tick));
+      assert.ok(dock.seen.value !== null, 'the dock painted');
+      assert.equal(peek.seen.value, dock.seen.value,
+        `tick ${tick}: the popup is drawing the very frame the dock drew`);
+    }
+    const decoded = decode(peek.seen.value);
+    assert.equal(decoded.state, 'idle', 'and it is this state');
+  } finally {
+    peekStop();
+    dockStop();
+  }
+});
+
+test('a follower whose state differs rolls its own take instead of mirroring', () => {
+  const skin = makeSkin(4, 4);
+  const dock = trackedCanvas();
+  const peek = trackedCanvas();
+  const dockStop = startLoop(dock.canvas, { current: 'idle' }, { current: false }, () => 1,
+    { current: skin }, null, 1, 'lead');
+  const peekStop = startLoop(peek.canvas, { current: 'tool' }, { current: false }, () => 1,
+    { current: skin }, null, 1, 'follow');
+  try {
+    for (let tick = 0; tick < 12; tick++) {
+      dock.seen.value = null;
+      peek.seen.value = null;
+      tickAll(at(tick));
+      assert.equal(decode(dock.seen.value).state, 'idle');
+      assert.equal(decode(peek.seen.value).state, 'tool',
+        `tick ${tick}: a reaction (or a different state) is the popup's own animation`);
+    }
+  } finally {
+    peekStop();
+    dockStop();
+  }
+});
+
+test('a follower keeps playing after the leader is gone', () => {
+  const skin = makeSkin(4, 4);
+  const dock = trackedCanvas();
+  const peek = trackedCanvas();
+  const dockStop = startLoop(dock.canvas, { current: 'idle' }, { current: false }, () => 1,
+    { current: skin }, null, 1, 'lead');
+  const peekStop = startLoop(peek.canvas, { current: 'idle' }, { current: false }, () => 1,
+    { current: skin }, null, 1, 'follow');
+  try {
+    tickAll(at(0));
+    dockStop();                       // the dock unmounts
+    let painted = 0;
+    for (let tick = 1; tick < 12; tick++) {
+      peek.seen.value = null;
+      tickAll(at(tick));
+      if (peek.seen.value !== null) {
+        assert.equal(decode(peek.seen.value).state, 'idle', 'the popup is still the pet');
+        painted++;
+      }
+    }
+    assert.ok(painted > 0, 'and it keeps animating on its own rotation');
+  } finally {
+    peekStop();
   }
 });

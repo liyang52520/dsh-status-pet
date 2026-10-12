@@ -77,10 +77,52 @@ function addTicker(tick: TickFn): () => void {
   };
 }
 
-// ── One animated canvas ──
+// One animated canvas
+//
+// `role` couples the live layers: the dock is the LEADER — it publishes the
+// take it is playing and the wall-clock instant its cycle started — and the
+// click popup is a FOLLOWER, which reads that instead of rolling its own take.
+// That is what makes the peek the SAME animation as the pet it was opened from,
+// in the same frame, rather than a second, independently rolled one: v9 couples
+// the artwork (one action library, one state table), and this couples the
+// player.  A follower whose state differs from the leader's (the popup playing
+// a reaction, a gallery preview of another state) simply rolls its own, and a
+// preview that is neither leads nor follows is entirely free.
+export type LoopRole = 'free' | 'lead' | 'follow';
 
 export interface LoopSkinRef {
   current: ResolvedSkin | null | undefined;
+}
+
+/** The leader's live take, for followers to mirror.  One mutable record — the
+ *  leader writes it every tick, so publishing costs no allocation. */
+const LEADER = {
+  skinName: '',
+  state: '',
+  index: 0,
+  cycleStart: 0,
+  at: 0,
+};
+
+/** How stale a published take may be before a follower stops trusting it (the
+ *  leader unmounted, or its tab is hidden and its ticker stopped). */
+const LEADER_STALE_MS = 250;
+
+function publishTake(skinName: string, state: string, index: number, cycleStart: number, now: number): void {
+  LEADER.skinName = skinName;
+  LEADER.state = state;
+  LEADER.index = index;
+  LEADER.cycleStart = cycleStart;
+  LEADER.at = now;
+}
+
+/** The published take, when this canvas is showing the very same state of the
+ *  very same skin and the leader is still alive. */
+function mirroredTake(skinName: string, state: string, count: number, now: number): { index: number; cycleStart: number } | null {
+  if (LEADER.skinName !== skinName || LEADER.state !== state) return null;
+  if (now - LEADER.at > LEADER_STALE_MS) return null;
+  const index = ((LEADER.index % count) + count) % count;
+  return { index, cycleStart: LEADER.cycleStart };
 }
 
 // `scaleFor(skin)` decides how many canvas px one sprite pixel is: the dock
@@ -99,6 +141,7 @@ export function startLoop(
   skinRef?: LoopSkinRef | null,
   takePinRef?: MutableRef<number> | null,
   zoom = 1,
+  role: LoopRole = 'free',
 ): () => void {
   const ctx = canvas.getContext('2d')!;
   ctx.imageSmoothingEnabled = false;
@@ -158,22 +201,50 @@ export function startLoop(
 
     // The pinned take (editor preview) replaces the random rotation.
     const pin = takePinRef ? takePinRef.current : -1;
-    const currentTake = () => entry.takes[(pin >= 0 ? pin : rotation.index) % entry.takes.length];
+    const currentTake = (index: number) => entry.takes[index % entry.takes.length];
 
-    // Advance within the cycle; on a wrap the take is held or re-rolled, and
-    // the frame drawn is the frame the CHOSEN take starts on — the roll used to
-    // happen after the take was read, so a fresh take inherited the outgoing
-    // one's phase and began on its second frame.
-    let take = currentTake();
-    let elapsed = now - cycleStart;
-    const cycle = take.frames.reduce((sum, f) => sum + f.ms, 0);
-    if (elapsed >= cycle) {
-      cycleStart = now;
-      if (pin < 0) rotation = advanceTake(rotation, entry.takes.length, policy);
-      take = currentTake();
-      elapsed = 0;
+    // A follower mirrors the leader's take AND its phase, so the two layers
+    // draw the same frame of the same action; without a live leader it is an
+    // ordinary free player (a popup whose state differs, an unmounted dock).
+    const mirrored = role === 'follow'
+      ? mirroredTake(skin.name, current, entry.takes.length, now)
+      : null;
+
+    let take;
+    let elapsed: number;
+    let index: number;
+    if (mirrored) {
+      index = mirrored.index;
+      take = currentTake(index);
+      elapsed = now - mirrored.cycleStart;
+    } else {
+      // Advance within the cycle; on a wrap the take is held or re-rolled, and
+      // the frame drawn is the frame the CHOSEN take starts on — the roll used to
+      // happen after the take was read, so a fresh take inherited the outgoing
+      // one's phase and began on its second frame.
+      index = pin >= 0 ? pin : rotation.index;
+      take = currentTake(index);
+      elapsed = now - cycleStart;
+      const cycle = take.frames.reduce((sum, f) => sum + f.ms, 0);
+      if (elapsed >= cycle) {
+        cycleStart = now;
+        if (pin < 0) rotation = advanceTake(rotation, entry.takes.length, policy);
+        index = pin >= 0 ? pin : rotation.index;
+        take = currentTake(index);
+        elapsed = 0;
+      }
     }
     const frames = take.frames;
+    // A mirrored phase can never outrun the cycle (every ticker in one
+    // animation frame sees the same `now`, so it only happens if the leader
+    // wrapped in this very frame); folding it keeps the frame walk in range.
+    const total = frames.reduce((sum, f) => sum + f.ms, 0);
+    if (total > 0 && elapsed >= total) elapsed %= total;
+
+    // Publish BEFORE the dirty check: a follower needs the take even on a frame
+    // this canvas skips redrawing (a still, single-frame take).
+    if (role === 'lead') publishTake(skin.name, stateName, index, cycleStart, now);
+
     let frameIdx = 0;
     for (let i = 0; i < frames.length; i++) {
       if (elapsed < frames[i].ms) {
@@ -184,7 +255,8 @@ export function startLoop(
     }
 
     // Reduced motion: freeze on the first frame.
-    const sprite = reduced ? frames[0].sprite : frames[frameIdx].sprite;
+    const shown = reduced ? frames[0] : take.frames[frameIdx];
+    const sprite = shown.sprite;
     const scale = scaleFor(skin);
 
     // Dirty check: skip the redraw when nothing visible changed.
@@ -219,8 +291,11 @@ export function startLoop(
 
     ctx.clearRect(0, 0, cw, ch);
     const bitmap = spriteBitmap(sprite, skin.palette, scale);
-    const dx = (spec.padX + sprite.dx) * scale;
-    const dy = (spec.baseY + sprite.dy) * scale;
+    // The whole-frame offset lives on the resolved FRAME, not on the sprite:
+    // it is already scaled for this grid (avatar units × 4 on the body), so one
+    // `整幅挪动` means the same hop on both faces.
+    const dx = (spec.padX + shown.dx) * scale;
+    const dy = (spec.baseY + shown.dy) * scale;
     if (bitmap) {
       ctx.drawImage(bitmap, dx, dy);
     } else {

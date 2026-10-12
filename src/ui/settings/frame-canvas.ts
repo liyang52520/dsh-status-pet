@@ -13,15 +13,17 @@ import { React, h } from '../../host-deps.ts';
 import { GRIDS } from '../../pet/grids.ts';
 import { draw } from '../../renderer/draw.ts';
 import { spriteFor } from '../../pet/skins/store.ts';
-import type { Frame } from '../../pet/skins/store.ts';
+import type { Cell } from '../../pet/skins/store.ts';
 
 /** The filmstrip's fixed on-screen size. */
 export const THUMB_CSS = 64;
 /** The library row's smaller thumbnail. */
 export const ROW_THUMB_CSS = 40;
 
-/** A static frame drawn into a canvas (one draw per change). */
-export function FrameCanvas(props: { frame: Frame; palette: string[]; grid: number; css: number }) {
+/** A static frame drawn into a canvas (one draw per change).  The frame is a
+ *  FACE — a v9 `Cell` (rows plus an optional accent) at one crop — so the same
+ *  component draws the filmstrip, an action's 4× body draft and a library row. */
+export function FrameCanvas(props: { frame: Cell; palette: string[]; grid: number; css: number }) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const size = GRIDS[props.grid].grid;
   React.useEffect(() => {
