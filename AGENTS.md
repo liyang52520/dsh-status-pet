@@ -15,7 +15,7 @@ Every feature belongs to exactly one layer:
 |---|---|---|---|
 | Resident | dock, far left | the pet itself — a pure read-out, no interactions of its own | the 32px **avatar** face, backing 40×40, at `LIVE_ZOOM` → **16 CSS px of art** |
 | Peek | the click popup | the big animated **full body** + every interaction, petting first | the 128px **body** face, backing 160×160, at `LIVE_ZOOM` → **64 CSS px of art** |
-| Workshop | Settings → Status Pet | skin cards, then two tabs — 预览 (look) and 编辑 (change) — each with its own 按状态 / 按动作 mode, sharing one **32 / 128 face switch** on the tab row | the galleries at `LIVE_ZOOM`; the studio board and its stage preview 1:1 |
+| Workshop | Settings → Status Pet | the skin cards, then ONE axis — **状态** / **动作**, two nouns rather than two query modes: a LIGHT eleven-row state list beside its edit surface, and the studio at full width with ONE picker that searches, previews and selects the action. **头像 / 全身** is a full-width row ON TOP of the canvas | the studio board at 1:1; the state's header picture at `LIVE_ZOOM`; the studio's live preview |
 
 A skin is one character as **two faces of every action**: the 32px avatar (dock,
 REQUIRED) and the optional 128px full body (popup). Users draw both in the pixel
@@ -89,8 +89,11 @@ lives; the root files are plumbing.
 │   │                                 take channel + useReducedMotion
 │   └── ui/                           where the pet lives (the three layers)
 │       ├── hooks.ts / dock-pet.ts / dock-popup.ts / pet-preview.ts / styles.ts
-│       └── settings/                 page.ts (tabs + crop switch), skin-picker.ts,
-│                                     assignments.ts (编辑·按状态), pixel-editor.ts (studio),
+│       └── settings/                 page.ts (the shell: skin cards, the 状态/动作
+│                                     axis, the state list + studio), skin-picker.ts
+│                                     (cards + activateSkin), assignments.ts (the
+│                                     state's edit surface), pixel-editor.ts (studio),
+│                                     action-combo.ts (the searchable picker),
 │                                     frame-canvas.ts, field.ts
 ├── README.md / LICENSE / .gitignore   human overview / MIT / ignores the artifacts + node_modules
 ├── bench/        the perf harness (NOT shipped): store.mjs/board.mjs price the hot paths,
@@ -173,8 +176,8 @@ therefore depends on the two crops' libraries staying in step in this file: the
 same ids, in the same order, with the same `frameMs`, frame counts and offsets
 (see *The paired model*).
 
-Three editing paths: a **custom skin** — the normal one, pick 我的创作 and import the
-built-in library; a **hand-edit** of `src/artwork.gen.ts` for a genuine fix, keeping the
+Three editing paths: a **custom skin** — the normal one, pick 我的创作 and let it seed
+itself from the built-in library; a **hand-edit** of `src/artwork.gen.ts` for a genuine fix, keeping the
 provenance comment truthful; or **restoring the raw art**, the only route back to the
 source: `git log` has `assets/*.gif`, `tools/gif-map.json` and `tools/gen-artwork.py`;
 `git checkout <rev> -- assets tools`, put the gifs back under their original names, and
@@ -214,8 +217,8 @@ different animations; v9 makes that impossible:
   definition the renderer, the thumbnails and the studio share), memoized per
   (frame, face); a skin whose actions ALL lack a body resolves its popup from the
   avatar grid at 4× (the cheap path). The body is optional PER ACTION: the 128 board
-  offers a draft (this action, or every action at once) or a blank grid, and a
-  body-carrying action can drop its 128 face again. Within one action the mutators
+  offers a draft (this action, or every action at once) or a blank grid. Within one action
+  the mutators
   keep it all-or-nothing (复制一帧/空白帧 carry the face along), so a mixed action
   can only arrive from hand-written JSON.
 - **Everything that is not a pixel is SINGLE SOURCE.** Frame count, `frameMs`, the
@@ -242,7 +245,7 @@ What that buys, and what to keep true:
 
 - **Reuse is a reference.**  One action ticked in four states is still one
   definition: editing it once changes all four. Both halves must keep the sharing
-  VISIBLE — 按动作's dropdown options, 按状态's rows and the delete button all
+  VISIBLE — the picker's rows, the state's checklist and the delete button all
   report `被 N 个状态在用`, and deleting an action strips it from every state that
   referenced it (`removeLibraryTake`), so a dangling id cannot exist.
 - **Ids, not indices.**  Deleting an action used to shift every later take's index,
@@ -288,87 +291,122 @@ colour overrides were dropped in v4: a built-in renders exactly as authored.)
 
 ## Custom skins
 
-The Settings tab is **one page with two tabs** — 预览 (look) and 编辑 (change) — and
-**each carries the same 按状态 / 按动作 switch**, because the two ways of looking at the
-artwork are the two ways of working on it. The **32 / 128 crop switch lives on the tab row**
-and belongs to BOTH tabs (the crop you look at *and* edit), so neither owns it: `page.ts`
-owns it as `crop` and passes it to `PetPreview` in the galleries and to `PixelEditor` /
-`StateAssignments` as `grid`.
+The Settings tab is **two things and one control above them**:
 
-**预览 (the default tab), read-only.**
+    [状态 | 动作]        ← the only navigation
 
-- **按状态** (the default) shows the RESULT: one LIVE `PetPreview` per state, tooltipped
-  with what the state means and badged with its assignment (`{n} 个动作` / `跟随空闲`) —
-  the only place an unassigned state is visible.
-- **按动作** shows the MATERIAL: one cell per library action (`takeId`-pinned), labelled
-  with the states that play it — unplayed ones included — paged (106 live canvases), with
-  a quiet line counting the unplayed.
-- BOTH modes carry their own **search box** — 按状态 matches a state by name, by its
-  `settings.hint.*` meaning, or by an action it plays; 按动作 matches name/origin/id.
-- Outside 批量删除 mode a cell is **inert**: a floating **✎** top-right is the whole edit
-  affordance — on every state cell (an assignment is editable on any skin) and on action
-  cells only for 我的创作 (a built-in's pixels are frozen). Looking at the pet never
-  changes it.
-- On 我的创作, 按动作's bar also carries **批量删除**: tiles become checkboxes, 全选 /
-  清空 / 删除选中 and a tick count appear, and the ticked actions leave in ONE write.
-  全选 takes every action the GALLERY's search matched. Removal takes a **confirm
-  overlay** (the count, 取消 / 删除) because there is no history stack: nothing is
-  written until 删除.
+**状态 — a light list beside its edit.**
 
-**编辑 — each mode is exactly ONE job.**
+- The left column is **eleven rows**, ONE LINE each: the state's name and its read-out
+  (`{n} 个动作` / `跟随空闲`), grouped 状态 / 反应 because a reaction is not something the
+  pet is *doing*. There is **no search** (eleven rows do not need one) and **no picture**:
+  eleven copies of the same face was the visual noise the second build was reported for,
+  and the state's picture is the right column's job.
+- The right column is the state's **edit** (`StateAssignments`): a compact header (an
+  80px live picture at the most detailed face, the name, and what the state MEANS) and
+  then the one library as a checkbox per action, with the **search box, 全选 and 清空 on
+  ONE row** (they must not wrap: the box may shrink below its placeholder, and the ops
+  are `flex:none`).  There is **no tick count** — "已勾选 1 个" says nothing the
+  checkboxes do not; it appears only when the selection hits `MAX_TAKES`, which is
+  news.  The list is DISPLAYED as two groups (this state's ticks
+  first, then 其他动作, each in library order) while the STORED selection keeps library
+  order, so a tick never re-orders the rotation; 全选 ADDS every action currently
+  LISTED.  There is no state dropdown and no per-row ✎: the list IS the selector, and
+  动作 has one way in.
+- **Every row carries its own preview, and pointing at one plays it.**  106 actions are
+  106 different animations, so a list of names is a list you cannot read: each row shows
+  the action's avatar at **1:1 (32px, an exact ratio)** — and while the pointer (or the
+  keyboard focus) is on a row, the HEADER plays THAT action live at the popup's size
+  (`takeId` pinned, `LIVE_ZOOM`), with `正在预览「…」` in place of the state's meaning.
+  A still is for finding it; the animation is for choosing it.
+- The two columns are 176px + 16px + the rest of the pane (~555px in practice, so the
+  checklist keeps ~363px — a checkbox, a thumbnail, a name and a read-out).  They stack
+  only below 480px.  The difference between the two lists is the POINT: the eleven
+  STATES are one character eleven times (no picture), while the library is 106 DIFFERENT
+  animations (each one pictured, and playable on hover).
 
-- **按动作** (`PixelEditor`), the pixel studio: an **action dropdown** (each option
-  carrying its frame count, whether it carries a body face, and how many states play
-  it) picks the ONE action on the board, and the field spine under it is 动作 → 画布 →
-  画笔 → 帧 → 当前帧, then the undo/redo + IO bar. The crop switch picks which FACE of
-  that action the board draws — never which library. Nothing here mentions a state.
-- **按状态** (`StateAssignments`), the assignment surface: a **state dropdown** (how
-  many actions that state plays, or 跟随空闲) picks WHICH STATE YOU ARE TICKING FOR,
-  and the ONE library follows as one checkbox per action — "this state plays it" — with
-  a **search box** and 全选 / 清空 beside it. The list is DISPLAYED as two groups (this
-  state's ticks first, then 其他动作, each in library order) while the STORED selection
-  keeps library order, so a tick never re-orders the rotation; 全选 ADDS every action
-  currently LISTED, because replacing would drop ticks the filter is hiding. Nothing here
-  draws a pixel; both halves are ONE column of labelled FIELDS (`field.ts`), 按状态's
-  being just 状态 → 动作库.
+**动作 — the studio at full width, with ONE picker.**
+
+- `ActionCombo` is the whole library control: closed it reads out the action on the
+  board; focused it opens a filtered list whose every row is a thumbnail plus its
+  read-out; ↑/↓ move, Enter picks, Esc closes.  On 我的创作 its footer carries
+  批量删除 (the rows become checkboxes, and the search still scopes the selection).
+- **Why a dropdown and not a list column**: at ~555px a 216px library column leaves
+  the board ~325px — 2.5 CSS px per pixel of a 128 face.  A list you have to look at is
+  not worth a board you cannot draw on, and the studio already needed the width; the
+  dropdown costs none and is there while you are choosing.
+- The studio is otherwise unchanged: 动作 → 画布 → 帧 → 画笔 → 当前帧.  The 动作 field is
+  TWO lines — the picker alone, then the action's NAME beside 新建动作 / 删除动作.  The
+  NAME's flexible cell is its WRAPPER (`.status-pet-action-name-field`), not the input:
+  `.status-pet-num-field` is `flex:none` (sized by its content), so an input asking to
+  grow inside it stays at its intrinsic ~20-character width and clips a Chinese name.
+  The **头像 / 全身** switch is a
+  full-width row ON TOP of the canvas (`flex:1 1 100%`, so the board always starts on
+  its own line and the switch can never sit beside it), and the canvas carries NO
+  caption — the switch has just named the face.
+- **The live preview is a PICTURE and nothing else**: no caption, no numbers, no link
+  (the picker's rows already say who plays what, and a 状态 cell is one click away), and
+  it is displayed at `LIVE_ZOOM` — 80 CSS px, the popup's own 1:2 size.  That is what
+  lets the board and the preview keep ONE row at every real pane width.
+- **Every skin gets the SAME 动作 view — and a built-in's is a VIEWER.**  A built-in's
+  page is the studio's own components — same picker, same board, same filmstrip —
+  because a second, read-only layout is how the two views drifted apart.  What differs is
+  what may be WRITTEN: a built-in's writing controls are absent (its action ops 新建 /
+  名称 / 删除 / 批量删除, 复制一帧 / 空白帧 / 删除帧, the 画笔 box, 当前帧's 时长 and
+  整幅挪动, the 128 draft buttons), the board is a PICTURE
+  (`editable === false` gates every mutator, `status-pet-board-readonly` drops the
+  crosshair), and the picker / the face switch / the filmstrip stay — those are how you
+  LOOK at a frozen library.  Nothing here writes and **nothing here forks**: an earlier
+  build copied the whole 15 MB artwork into 我的创作 on the FIRST EDIT, which made a
+  stray click on the board an irreversible copy plus a skin switch.  The one door into
+  drawing is the 我的创作 card in the skin picker, which seeds itself from the active
+  skin (the whole library, both faces and the state assignments).
+
+The old page was a 2×2 matrix — 预览 / 编辑 tabs each with their own 按状态 / 按动作
+switch — plus a 32 / 128 switch on the navigation row, a per-tile corner ✎ as the only
+way into the editor, and a search box in front of everything.  What survived the
+rewrites is the part that was never the problem: the eleven states ARE a list, the
+library is one dropdown, and looking at something is the ordinary way to change it.
 
 Invariants:
 
-- **A built-in may be re-ASSIGNED, never re-drawn.**  Its 编辑 tab exists but only the
-  按状态 half — no 按动作 in the switch, a quiet line pointing at 我的创作, and no ✎ on
-  its action cells. The assignment is stored as a DIFF beside the skin
-  (`saveSkinStates` → `builtinStates`, one flat `{state: ids}` table), so the built-in keeps its pixels, a state nobody
-  touched keeps following the artwork, and **nothing forks** (the old studio forked to
-  我的创作 on the first stroke, which made the page seem to edit one thing and save
-  another).
+- **A built-in may be re-ASSIGNED — its 动作 page only LOOKS.**  Both views render the
+  same components for every skin; what differs is that a built-in's writing controls are
+  absent and its board is a picture.  Its assignment is stored as a DIFF beside the skin
+  (`saveSkinStates` → `builtinStates`, one flat `{state: ids}` table), so the built-in
+  keeps its pixels and a state nobody touched keeps following the artwork.  Pixels move to
+  我的创作 only when the user PICKS that skin, whose slot seeds itself from the active one;
+  no studio control copies anything, and **nothing forks** (an earlier build forked to
+  我的创作 on the first stroke — a stray click on the board, which made the page seem to
+  edit one thing and save another, and cost a 15 MB copy plus a skin switch).
 - **`idle` can never be emptied — but 清空 still works on it.**  It is the anchor every
   unassigned state falls back to, and validation/resolution require it to play
   something, so an emptied idle would invalidate the document and blank the pet.
-  清空 on 空闲 clears down to its FIRST action, and the rule is PRINTED as a hint under
-  the ops row (`clearIdleHint`) rather than hidden in a `title`. Every other state
-  clears to empty — that IS the idle fallback.
-- **The seam between the tabs is the corner ✎**, which opens 编辑 in the matching mode
-  ALREADY POINTING AT THAT CELL. `page.ts` owns both targets (`editAction`,
-  `editState`); opening 编辑 from the tab row clears `editAction`, so the ordinary way
-  in starts on the library's first action.
-- **The library is a small curated set of slots**: 新建动作, 删除, 批量删除, and
-  **导入动作** — an OVERWRITE, not a merge. The picker offers the built-in's library
-  (search + thumbnails, 106 entries) or this artwork's own actions; picking one replaces
-  the WHOLE action — both faces, its name, its frame count and its pace — while
-  KEEPING ITS ID so every reference survives (`overwriteLibraryTake`), re-points the
-  source's colours at this document's palette (`adoptRows`), and one 撤销 restores.
-  There is no crop isolation any more: an action is one thing, and the row's thumbnail
-  shows the face you are drawing. No 复制动作 (that is 新建动作 + 导入) and no bulk
-  import.
+  清空 on 空闲 clears down to its FIRST action — and because that rule applies to ONE of
+  eleven states, it is **asked for** (`clearIdleTitle` + the same `clearIdleHint` copy in
+  a confirm card) instead of being printed on every visit; every other state clears to
+  empty at once, because an empty selection IS the idle fallback.  The button keeps the
+  rule as its `title`.
+- **There is exactly ONE door per object.**  The state list selects the state; the studio's
+  picker selects the action.  There is no per-row ✎, no second selector and no link back
+  from the preview: `page.ts` owns
+  both selections (`state`, `action`), so the two views can never disagree about what is in
+  front of you, and the studio reports its own selection changes back through
+  `onActionChange`.
+- **The library is a small curated set of slots**: 新建动作, 删除, 批量删除. The picker
+  lists this artwork's own actions — each row a thumbnail plus its read-out — and
+  selecting one only moves the board onto it. There is no 导入动作 (an action is filled by
+  DRAWING it), no 复制动作 and no bulk import: the library stays a set of slots you curate
+  by hand.
 - **Deleting is guarded, singly and in bulk.**  Both surfaces (the studio's ✕ and
   删除选中) refuse the two deletions that would invalidate the document: the last action
   in the library, and the only action a crop's `idle` plays (an invalid document is
   dropped on the next read — losing a whole drawing to a stray click). `removalIsBlocked`
   is shared: the button DISABLES on it and the mutator REFUSES on it.
-- **Import/export** round-trips the whole document as JSON. The export carries `v`; the
-  IMPORT goes by SHAPE, so a v9 document reads as itself, a v7 or v8 one is upgraded
-  through `upgradeArtwork`, and a payload from a NEWER version is refused with a
-  message.
+- **There is no persistence ceremony in the UI.**  `serializeArtwork` /
+  `parseArtworkExport` still round-trip a whole document as JSON, but they are the
+  embedder's API (`skinTools`) now: the studio writes every edit through `saveStored` on
+  the spot, and the 导入 / 导出 JSON fold is gone.
 
 Studio mechanics:
 
@@ -379,32 +417,58 @@ Studio mechanics:
   column by max-content, which put a blank block beside the state list and the canvas
   BELOW it. There is no second column to fall into that now.
 - **Container-responsive, not viewport-responsive**: `.status-pet-studio` is a
-  `container-type:inline-size` container, so regions follow the *settings pane*; one
-  `@container` query at ≥700px puts the take preview beside the board, else a strip below.
+  `container-type:inline-size` container, so regions follow the *settings pane*; the
+  stage goes two-column at **≥380px** — board + the preview's 80px, with the board
+  column CAPPED at 512 and the pair centred, so a wide pane does not leave the preview
+  stranded at the far edge — and only below that does the preview drop under the board.
+  Two earlier thresholds (700px, then 460px) both left it stacked at real pane widths,
+  which cost a screenful for nothing; 80px of preview is what makes one row safe.
+  (`display:grid` on `.status-pet-stage` is load-bearing: an `@container` override
+  cannot lay out a block.)
+- **The 状态 list is 176px, and the two columns stack only below 480px.** The pane is
+  ~555 CSS px wide in practice (measured off a full-dialog screenshot), so 176 + 16 +
+  ~363 is the split that fits; an earlier build used 216px with a 700px stacking
+  threshold and ended up as two full-width blocks.  The list is LIGHT on purpose — no
+  border box, no search, no 90px cards — because that weight, not the two-column idea,
+  was what looked wrong.
 - **The preview is the preview, and the frame's numbers live with the frames**: the
   action's live preview sits in its own stage cell — always PINNED to `takeId`, so there
   is no shuffle toggle (the state rotation belongs to the pet) — while 时长 and
-  整幅挪动 live in 当前帧, under the filmstrip they describe.
+  整幅挪动 live in 当前帧, under the filmstrip they describe.  The 头像 / 全身 row sits
+  above all of it, never on the page's axis.  The preview carries no caption and is not
+  clickable: it shows, and that is all.
 - **The animation story is: draw a frame → duplicate it → nudge it.**  The filmstrip
-  leads with `⧉ 复制一帧` (clone, insert after, select the copy) and `+ 空白帧`; the one
-  clipboard button renames itself `复制到剪贴板` / `粘贴`.
-- **There is exactly ONE move control: 整幅挪动**, a direction pad writing the frame's
+  leads with `⧉ 复制一帧` (clone, insert after, select the copy) and `+ 空白帧`, and
+  `× 删除此帧` joins them as soon as there is a frame to delete: the three ops are ONE
+  group (`.status-pet-frame-ops`) that rides the filmstrip and stays together wherever
+  the strip wraps — left-aligned with the thumbnails, never floated right and never a
+  row of its own.  There is no frame
+  reorder and no frame clipboard any more — the filmstrip selects, 复制一帧 copies.
+- **整幅挪动 is a LABELLED row of 当前帧**, and there is exactly ONE move control: a
+  direction pad writing the frame's
   `dx`/`dy` (avatar units, clamped to `GRIDS[AVATAR_GRID].maxOffset`; the body face
   renders them ×4) at draw time with the pixels untouched — one press is the same hop
-  on both faces.
+  on both faces.  Label and pad share one row (name on the left, pad in the value column
+  like the two number rows above) so the field lines up instead of the pad floating under
+  the numbers.
   The label carries the read-out (`整幅挪动 ↓1`) and 归零 appears while moved. The
   destructive sibling `shiftRows` (moves the drawn pixels, drops what falls off the
   edge) is deliberately NOT in the UI — two near-identical "move" controls made the studio
   unreadable — and stays in the store for a future board-level affordance.
-- **Undo/redo** is a per-mount snapshot stack (50 deep), also on ⌘/Ctrl+Z. **Renaming
-  is deliberately not undoable** (one entry per keystroke); the name field is
-  uncontrolled and commits on blur. The frame clipboard lives in 按动作; 按状态 has none.
+- **The studio SESSION keeps your PLACE, not a history.**  It is a module keyed by the
+  ARTWORK IDENTITY (`pixel-editor.ts`), holding the action and the frame you were on: the
+  page swaps the studio for the 状态 view, and "look at the states, then tick what I just
+  drew" must not send you back to the top of the library.  A remount of the same document
+  resumes it; ANY other write (the picker's 批量删除, another skin) produces a new document
+  object and drops it — a position in a document nobody has is worse than none. `hold()`
+  syncs the session at WRITE time, not on the next render.  **There is no undo/redo**:
+  the 撤销 / 重做 buttons, the ⌘/Ctrl+Z handler and the snapshot stack are gone.  Renaming
+  is likewise not a history entry — the name field is uncontrolled and commits on blur.
 - **The 128 face is optional, PER ACTION.** With no body face the board shows an
-  empty-state card offering a 4× draft (this action, or every action at once), a blank
-  grid, or nothing; a body-carrying action can drop its 128 face again (移除 128 面) and
-  the popup goes back to the 4× draft. A draft is `upscaleCell` of the avatar face, and
-  within one action 复制一帧 / 空白帧 carry the body face along — the action is never
-  left half-bodied.
+  empty-state card offering a 4× draft (this action, or every action at once) or a blank
+  grid. A draft is `upscaleCell` of the avatar face, and within one action
+  复制一帧 / 空白帧 carry the body face along — the action is never left half-bodied.
+  There is no button that drops an existing 128 face again.
 - **Every mutator reads `artRef` at call time**, so rapid clicks and drag strokes never
   lose work; drag-painting requires a held button; right-click is the eyedropper.
 - **The brushes ARE the paint box**: six native colour-picker wells — click one to paint
@@ -616,16 +680,20 @@ The sizing rule is **integer ratios only**, read at two stages:
 - **The rendered face (1:1).**  `GRIDS` is the size the artwork is DRAWN at: one sprite
   pixel per canvas pixel, plus the headroom above, and a face with no 128px block is
   drawn from its own avatar at 4× (128 = 32 × 4). The studio BOARD stays 1:1 (you are
-  judging a pixel you just placed); the cards keep the avatar at 1× (a 40px canvas).
+  judging a pixel you just placed); the skin cards show the avatar at 2× (an 80px
+  canvas) and every list row an avatar at 1× (32px) — `ROW_THUMB_CSS` is 32 because that
+  is the one size that is an EXACT ratio of both crops (32 → 1:1, 128 → 1:4), so a row
+  stays crisp at either face.  The eleven-row STATE list carries no picture at all: that
+  is one face eleven times, and its picture is the header's.
 - **The live layers (rendered 1:1, displayed at `LIVE_ZOOM = 1/2`).**  The dock and the
   popup render into a 40×40 / 160×160 backing store and set the **CSS box** to half that
   (20 / 80) — **16 CSS px of avatar art**, **64 CSS px of body art**. `LIVE_ZOOM` is an
   exact 1:2 against an artwork that is an exact 2× fill of its crops, so `pixelated` maps
   one destination pixel to one source pixel. The sprite is **never re-rendered smaller**:
   `startLoop` scales only `canvas.style.width/height` (`PetPreview` takes the same `zoom`
-  prop, default 1 — which the studio's board-side preview relies on). `DockPopup`, both
-  galleries and `DockPet` pass `LIVE_ZOOM`; the studio's BOARD and its stage preview stay
-  1:1.
+  prop, default 1 — which the studio's board-side preview relies on). `DockPopup` and
+  `DockPet` pass `LIVE_ZOOM`; the Workshop's studio board is 1:1, the picker's rows carry
+  1:1 avatars, and the state's header picture is the popup's `LIVE_ZOOM`.
 
 Filmstrip thumbnails are unchanged: `THUMB_CSS` = 64 on screen, canvas backing one
 pixel per grid pixel (32 → 2× up, 128 → 2:1 down), both exact.
@@ -879,16 +947,21 @@ hand-driven clock).
 | `loop.test.ts` | the real player: held takes, an immediate switch at frame 0, pinned takes, flapping states, the offset read from the resolved FRAME, and the TAKE CHANNEL (a follower draws the leader's exact frame; a different state or a dead leader rolls its own) |
 | `draw.test.ts` | the ImageData rasterizer: colour packing, transparency, the scaled scratch-canvas path, the palette table |
 | `bundle.test.ts` | the built `client.js` under a stubbed loader |
-| `ui.test.ts` | registration (one dock entry, **no `settings.general.item` row**, the settings entry, label thunk); the settings page (tabs, crop switch, previews with meaning tooltips, corner-✎ targets, `actionId`, the two edit modes kept apart — the studio's selector is `status-pet-action-select`, 按状态's is `status-pet-state-select`); both halves (a tick writes a REFERENCE, search scopes 全选, 清空 stops at one action on 空闲, a built-in stores a flat DIFF and never forks, a dangling id is dropped); the studio (selection/fallback, shared-action re-resolution, free painting with no lost strokes, 新建/删除/批量删除 in one write behind a confirm plus both guards, import replacing the whole action, frame CRUD, duplicate → one 整幅挪动 ↑ gives `dy: -1` with the pixels untouched → 归零, the per-action 128 draft + 为所有动作生成草稿, undo/redo); interactions end to end; the popup (open/close, `aria-haspopup`/`aria-expanded`, tooltip disabled, panel-wide petting); the paint box (twenty colours → twenty palette slots); registry/locale integrity; the layout invariants |
+| `ui.test.ts` | registration (one dock entry, **no `settings.general.item` row**, the settings entry, label thunk); the Workshop (ONE axis and no tab row; the 状态 view as two columns with eleven ONE-LINE rows (name + read-out, no picture, reactions in their own group, **no search**) beside an edit surface whose header names the state once, at the most detailed face, with the search box, 全选 and 清空 on ONE line (never wrapped, and no tick count unless the cap is hit), each row carrying its own 1:1 thumbnail and the header playing the hovered action live; the 动作 view at full width with a comboBOX picker: it reads out the board when closed, lists every action with a preview when focused, filters as you type, and Enter picks; its footer does 批量删除 behind a confirm; a built-in's 动作 view is the SAME studio with EVERY writing control absent — no action ops, no frame CRUD, no 画笔 box, no 当前帧 numbers — its board a read-only picture, and no copy button or fork of any kind; and the assertion that no corner ✎ survives anywhere); the assignment surface (a tick writes a REFERENCE, search scopes 全选, 清空 stops at one action on 空闲, a built-in stores a flat DIFF and never forks, a dangling id is dropped); the studio (selection/fallback, the session surviving a remount with its frame, shared-action re-resolution, free painting with no lost strokes, 新建/删除动作, the 动作 row as two explicit lines with no 导入动作 / 移除 128 面, frame CRUD with 删除此帧 as the only list op left, duplicate → one 整幅挪动 ↑ gives `dy: -1` with the pixels untouched → 归零, the per-action 128 draft + 为所有动作生成草稿, and no undo/redo or JSON fold); the FACE switch on the canvas row and NOT on the axis; interactions end to end; the popup (open/close, `aria-haspopup`/`aria-expanded`, tooltip disabled, panel-wide petting); the paint box (twenty colours → twenty palette slots); registry/locale integrity; the layout invariants |
 
-**Three traps the React stub has already fallen into — do not reintroduce them:** the
+**Four traps the React stub has already fallen into — do not reintroduce them:** the
 component closes over the React instance passed to `factory(require)`, so the stub must be
 a **single** instance (a fresh one per render silently empties the `useState` queue and
 every `idleMs` case passes vacuously); hook storage must be reset **per mount** (or one
 test's `reaction` leaks into the next and the locale assertions fail for the wrong
-reason); and the `useState` stub must run **lazy initializers** (the editors seed state
+reason); the `useState` stub must run **lazy initializers** (the editors seed state
 with `useState(() => …)`, and storing the function verbatim makes every editor test fail
-in confusing ways).
+in confusing ways); and a NESTED component is an unreduced ELEMENT in the tree — the stub
+does not render children components, so a page test reads `StateAssignments` / `PixelEditor`
+output through the `expand()` helper (`el.type(el.props)`), which starts at the page's own
+hook count and therefore leaves the page's state alone (the same move the popup tests
+make). `findDeep` does not flatten children arrays either; use `findAllDeep` for anything
+rendered inside a `map`.
 
 ### What the suite cannot verify
 
@@ -914,24 +987,34 @@ Run through this after a change that touches appearance or layout:
    after ~60 s idle. A tool approval pulses the pill. Reduced motion: no bob, no pulse,
    no jump. Hidden tab: the loop stops. Idle for a minute: each take plays 3–5 whole
    loops (6–11 s) before another is rolled — no flicker every couple of seconds.
-4. In DSH Settings, the "状态宠物" tab shows the skin cards, then 预览 and 编辑 — each
-   with its own 按状态 / 按动作 switch, sharing a 32 / 128 FACE switch on the tab row (32
-   = the avatar face, drawn at 4× and the DEFAULT; 128 = the body face). 预览 holds
-   eleven LIVE pets with no big preview block, no recolour row and no position control;
-   on a **built-in**, 编辑 opens on 按状态 with no 按动作 and only state cells carry a ✎;
-   on 我的创作 it opens on 按动作 with ✎ on action cells too. Press 32 / 128 and every
-   cell changes face at once (both halves of 编辑 with it); a corner ✎ opens 编辑 on that
-   cell.
-5. In 编辑 · 按动作 paint a few cells (draw a wink to prove strokes are not mirrored),
-   hit 复制一帧 and 整幅挪动 ↓ once, tick the action for `tool` in 按状态, then run a tool:
-   the dock plays YOUR animation, and editing it again moves both states because a tick is
-   a reference. Move the pane from ~400 px to ~1200 px — the board stays a complete
-   square, the preview moves beside it at ~700 px, nothing wraps one character per line.
-6. Paste garbage into the import box — a localized error; a valid export applies as
-   我的创作; the 128 draft makes the popup show your body crop instead of the 4× upscale
-   (dock untouched), and 移除 128 面 puts it back; a corrupted
+4. In DSH Settings, the "状态宠物" tab shows the skin cards (drawn at 2×, with a badge on
+   我的创作 — it is a COPY of a built-in, so the two cards show the same face), then ONE
+   axis — 状态 / 动作 — and NO tab row. 状态 opens first, as TWO columns at the
+   pane's real width: eleven LIGHT one-line rows on the left (name + what it plays; no
+   picture, no search box, no bordered panel, the reactions under a 反应 caption) and the state's
+   edit on the right (one 80px live picture + name + meaning, then the checklist, whose
+   rows each show the action and whose header plays the one you point at). Click a row
+   and the right half follows it. There must be no second 「状态」 heading, no state
+   dropdown and no tick count; 全选 / 清空 sit on the search line, and 清空 on 空闲 asks
+   for confirmation instead of the page carrying the rule as text.
+5. Switch to 动作: the studio takes the WHOLE pane, and its 动作 row is TWO lines — the
+   dropdown with 新建动作 / 删除动作 beside it, then the action's NAME. Click it and the
+   library opens with thumbnails, type to filter, Enter to pick. Paint a
+   few cells (draw a wink to prove strokes are not mirrored), hit 复制一帧 and
+   整幅挪动 ↓ once (its label and pad on ONE row of 当前帧), then switch to 状态, tick that
+   action for `tool`, and switch BACK: you are still on the same action and frame (the
+   session is keyed by the artwork), and running a tool
+   plays YOUR animation. 头像 / 全身 is a row ON TOP of the canvas — press it and the
+   board changes face; it appears nowhere else.  A built-in's page must look IDENTICAL
+   to 我的创作's (minus the action ops), and the card must start at the SAME offset in
+   both views. 批量删除 lives in the picker's footer. Move the
+   pane from ~400 px to ~1200 px — the board stays a complete square, the 状态 columns
+   stack only under 480 px, and nothing wraps one character per line.
+6. The 128 draft makes the popup show your body crop instead of the 4× upscale (dock
+   untouched); a corrupted
    `localStorage["status-pet:skin"]` falls back to the default skin; editing a brush
-   leaves earlier pixels alone; the paint box survives a reload.
+   leaves earlier pixels alone; the paint box survives a reload.  There is no 撤销 /
+   重做, no 导入 / 导出 JSON and no 导入动作 anywhere on the page.
 
 ### Common issues
 
@@ -977,7 +1060,7 @@ enabled=true|false`, `list_bundles`.  Without it: `dsh plugin --profile <name> a
   missing body face is DERIVED (the avatar at 4×) rather than invented, so the body
   stays optional without ever breaking the pairing.
 - **Integer ratios only** — the render is 1:1 (the studio board, skin cards, stage
-  preview) or an exact integer ratio (the popup's 4× upscale, the galleries' 1:2
+  preview) or an exact integer ratio (the popup's 4× upscale, the dock's 1:2
   `LIVE_ZOOM`). Fractional geometry is what made movement invisible and pixel art blurry;
   **whole-pixel displacement** goes with it, because fractional offsets make `pixelated`
   snap rows unevenly.

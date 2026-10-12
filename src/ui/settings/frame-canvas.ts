@@ -17,8 +17,9 @@ import type { Cell } from '../../pet/skins/store.ts';
 
 /** The filmstrip's fixed on-screen size. */
 export const THUMB_CSS = 64;
-/** The library row's smaller thumbnail. */
-export const ROW_THUMB_CSS = 40;
+/** The list row's small thumbnail.  32 is the one size that is an EXACT ratio
+ *  of both crops (32 → 1:1, 128 → 1:4), so a row stays crisp at either face. */
+export const ROW_THUMB_CSS = 32;
 
 /** A static frame drawn into a canvas (one draw per change).  The frame is a
  *  FACE — a v9 `Cell` (rows plus an optional accent) at one crop — so the same

@@ -104,19 +104,19 @@ apron with a tiny whale logo. Everything else is yours to draw:
 - **An action library, not eleven separate animations** — the skin holds ONE
   library of **actions** (up to 128), each one animation with **two faces** (the
   avatar and the optional body), and every state simply **ticks the ones it
-  plays** (编辑 · 按状态). Up to **8 frames** per action, each frame a full grid you
-  paint freely in 编辑 · 按动作 — one click, one pixel, **no forced mirroring**, so
+  plays**. Up to **8 frames** per action, each frame a full grid you
+  paint freely in the studio — one click, one pixel, **no forced mirroring**, so
   a wink is drawable — and the frame count, pace and nudge are shared by both
   faces, so the head and the body can never drift apart. Tick one action in
   several states and it is *reused*: the editor says 「被 3 个状态在用」, and
-  editing it once changes all three. A state with nothing ticked follows Idle. **导入动作** fills a slot instead of growing
-  the library: pick one of the built-in animations (吃年糕, 吐泡泡, 原地360°旋转…
-  — the picker has a search box and thumbnails) or one of your own, and it
-  replaces the action you are editing — same slot, so the states that played it
-  still do, with one 撤销 to get your drawing back. Per-frame timing and a
+  editing it once changes all three. A state with nothing ticked follows Idle.
+  **新建动作** mints a fresh slot and **删除动作** removes one (a library's two
+  guarded deletions — the last action, and Idle's only action — are refused).
+  Per-frame timing and a
   whole-frame nudge (the way to
   make a bob or a sway) are in the frame row; each action also carries one shared
-  pace. Undo/redo, a frame clipboard, and JSON import/export are all there.
+  pace. The filmstrip does 复制一帧 / 空白帧 / 删除此帧, so a whole animation is
+  drawn a frame at a time.
 - **The paint box** — six free colour wells beside the board. Click one to paint
   with it, click it again to change its colour with your OS picker. What you
   paint with is baked into the pixels, so editing a brush never repaints what
@@ -124,9 +124,9 @@ apron with a tiny whale logo. Everything else is yours to draw:
   brush; the `×` well erases. Your paint box survives a reload.
 - **Both faces** — draw the 32×32 avatar (always required) and, for any action
   you like, its 128×128 body. The 128 board offers a 4× draft of that action — or
-  of every action at once — and a body-carrying action can drop its body again,
-  falling back to the avatar at a crisp 4× upscale. The crop switch on the tab
-  row picks which FACE you are drawing, never which library.
+  of every action at once — so a body-less action still shows something in the
+  popup: the avatar at a crisp 4× upscale. The 头像 / 全身 row on top of the
+  canvas picks which FACE you are drawing, never which library.
 
 Nothing you can do in the studio can break the pet: every load validates the
 stored artwork, and a corrupt or hand-edited store falls back to the whale
@@ -163,49 +163,49 @@ change; hover her to see the state named.
 ## Her settings tab
 
 Open DSH Settings and pick **状态宠物 / Status Pet** in the nav. The page is the
-skin cards on top, then two tabs:
+skin cards on top, then **one axis** — and that is the whole navigation.
 
-- **预览 / Preview** — two ways of looking at the same artwork. **按状态** is
-  the result: eleven live pets, one per state, each animated with that state's
-  real motion and badged with what it plays (「3 个动作」 or 「跟随空闲」 — the one
-  place a state you forgot to tick anything for is visible). **按动作** is the
-  material: every action in the library, live, including the ones no state plays
-  yet, each labelled with the states that do. Hover a state cell and the tooltip
-  says what the state means. Both modes carry a **search box** — 按状态 matches a
-  state by its name, its meaning or an action it plays; 按动作 matches an action.
-  On 我的创作 the 按动作 bar carries **批量删除**: the tiles become checkboxes,
-  全选 / 清空 / 删除选中 appear, and the ticked actions leave the library in one
-  step — after a confirm dialog, because a removal cannot be undone. Every STATE cell wears a small **✎** in its top-right
-  corner — click it to jump straight into 编辑 with that state in front of you —
-  and on 我的创作 an action cell has one too, jumping into the studio with that
-  action on the board.
-- **编辑 / Edit** — the same two words, the same two modes, but this time you
-  are changing things. **按动作** is the pixel studio: an **action dropdown** picks
-  the one action on the board, then 画布 / 画笔 / 帧 / 当前帧 below it, with
-  新建动作 / 删除动作 / 导入动作 beside it (导入 into a new slot is the whole
-  复制动作 story). **按状态** is
-  where the library lives: a **state dropdown** picks which state you are ticking
-  for, a **search box** narrows the list (全选 ticks everything currently listed,
-  so it is aimable rather than all-or-nothing), then one checkbox per action says
-  whether that state plays it, with 全选 / 清空 beside it. The actions the state
-  already plays are listed **first**, under an 已勾给该状态 header — so what the
-  state does is the first thing you read, instead of being scattered through the
-  library — with 其他动作 below them; each half keeps the library's order. 清空
-  empties any state;
-  on 空闲 it keeps the first action, because 空闲 is the fallback every unassigned
-  state follows and the pet would have nothing to draw. The two never mix —
-  nothing on the
-  studio page mentions a state, and nothing on the assignment page mentions a
-  paint brush. **A built-in can be re-assigned, never re-drawn**: its 编辑 tab is
-  there, but the switch drops 按动作 — a built-in keeps its pixels, so what you
-  change is only which of its own actions each state plays (the pet updates
-  instantly, and 我的创作 is not created behind your back).  Drawing, importing
-  actions and the paint box are 我的创作's alone.
+**状态 / States — a light list beside its edit.** The left column is eleven
+one-line rows, one per state (the reactions sit under their own 反应 caption, because
+a reaction is not something she is *doing*): the name, and what that state plays
+(「3 个动作」 or 「跟随空闲」 — the one place a state you forgot to tick anything for is
+visible). No pictures here — that would be the same face eleven times — and no search,
+because eleven rows do not need one; her picture is the one in the header. Click a row and the right half follows it: the state live and named
+once with what it means, then the library as one checkbox per action saying whether
+this state plays it. Each row carries a little 1:1 picture of its action, and pointing
+at a row plays it **live in the header** — 106 animations cannot be chosen from a list
+of names. The actions the state already plays are listed **first** under an
+已勾给该状态 header, with 其他动作 below; each half keeps the library's order, the
+search box scopes 全选 (which sits on the same line as 清空), and 清空 empties any
+state — on 空闲 it asks first, because every unassigned state follows 空闲 and it would
+otherwise have nothing to draw.
 
-The **32 / 128** switch sits on the tab row, because it belongs to both tabs: it
-is the face you look at *and* the face you draw. The board is a square that can
-only ever be as large as the pane gives it: the whole 128×128 face is visible at
-any width, and it never scrolls sideways.
+**动作 / Actions — the studio at full width.** Its 动作 row is TWO lines: the picker
+with 新建动作 / 删除动作 beside it, and the action's NAME below. The picker is ONE
+control: a dropdown that searches, previews and selects. Closed it reads out the action on the
+board; open it lists every animation with a thumbnail and its read-out, filtering as
+you type (↑/↓ and Enter work too). The board therefore gets the whole pane — at the
+settings dialog's real width (~555px) a side-by-side library list would leave it
+325px, which is 2.5 pixels per pixel of a 128 face. Below it: 画布 / 帧 / 画笔 /
+当前帧. Nothing on this side mentions a state.
+
+**The left column is the door** and there is nothing else to hunt for: no 预览 / 编辑
+tabs, no per-cell ✎, no separate 批量删除 screen — 批量删除 lives in the picker's
+footer (the rows become checkboxes, the search still scopes the selection), because
+that is where the library is.
+
+**头像 / 全身 sits in a row on top of the canvas** — the one place where the answer
+changes what you do. Beside the board is a small live preview (the popup's own
+display size, no caption, nothing to click) so the pair always fits on one row.
+Everywhere else a preview simply asks for the most detailed face there is.
+
+**Every skin gets the same two views** — a built-in's 动作 page is a **viewer** of the
+same studio: the picker, the board and the filmstrip are there to look through, and every
+control that would write (the action ops, the frame ops, the brushes, the frame numbers,
+undo/import) is simply absent. Nothing there edits or copies anything, on one click or on
+any other — to draw, pick **我的创作**, which seeds itself from the current skin. A
+built-in can still be re-assigned freely in 状态, and your undo history survives a trip to
+the other view.
 
 ## Good to know
 
@@ -269,9 +269,9 @@ files are the plumbing.
 | `renderer/take-rotation.ts` | The pure take-hold policy: how many plays one take gets before the next is rolled |
 | `renderer/loop.ts` | One shared rAF ticker + the frame player (`zoom` scales the CSS box only) |
 | `ui/dock-pet.ts` · `ui/dock-popup.ts` | The two live layers: the dock pill and its click popup |
-| `ui/pet-preview.ts` | The one pet-drawing component (popup, gallery, skin cards, studio) |
+| `ui/pet-preview.ts` | The one pet-drawing component (popup, detail panes, skin cards, studio) |
 | `ui/hooks.ts` · `ui/styles.ts` | Session props → pet facts + reactions, and the inlined stylesheet |
-| `ui/settings/` | The Workshop: the settings page, the skin picker, the pixel studio |
+| `ui/settings/` | The Workshop: the page shell (skin cards + axis + the state list), the skin picker, the state's edit surface, the pixel studio, and the searchable action picker |
 | `main.ts` · `host-deps.ts` | Registration at the fixed `DOCK_ORDER`, and the only module touching the loader's `require` |
 
 ### Editing is fast because every cache is keyed by identity

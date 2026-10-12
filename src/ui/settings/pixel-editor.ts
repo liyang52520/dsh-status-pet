@@ -3,7 +3,7 @@
 // This is the half of 编辑 that DRAWS.  It never asks which state anything
 // belongs to, and it never shows a checkbox: the 动作 dropdown picks the one
 // action on the board, and the rows below describe that action — 画布 (the
-// board + its live preview) → 画笔 (the paint box) → 帧 (the filmstrip) →
+// board + its live preview) → 帧 (the filmstrip) → 画笔 (the paint box) →
 // 当前帧 (the selected frame's own numbers).  Assigning a state is the OTHER
 // mode of the tab (按状态, `assignments.ts`), and keeping the two apart is the
 // whole point: one dropdown decides what is drawn, the other decides what is
@@ -14,7 +14,7 @@
 // An action is ONE animation with TWO FACES: `cells[32]` (the dock avatar,
 // required) and `cells[128]` (the full body, optional — a body-less face is
 // rendered as the avatar at an exact 4× upscale, which is why the popup still
-// shows something sensible).  The crop switch on the page's tab row therefore
+// shows something sensible).  The 头像 / 全身 switch on the canvas row therefore
 // means "which FACE of THIS ACTION am I drawing", NOT "which library":
 //
 //   * frame count, `ms`, the per-frame `ms` and 整幅挪动 are SINGLE SOURCE —
@@ -23,22 +23,18 @@
 //   * 整幅挪动 is authored in AVATAR units and rendered ×4 on the body, so one
 //     press is the same hop on both faces (that is what the 128 headroom is
 //     for);
-//   * 复制一帧 / 空白帧 / 删除帧 act on the ACTION, so both faces stay in step;
-//   * 导入 replaces the whole action — both faces, its pace and its name —
-//     because an action is one thing and its frame count cannot come from two
-//     sources.
+//   * 复制一帧 / 空白帧 / 删除帧 act on the ACTION, so both faces stay in step.
 //
 // The body face is optional: the 128 board shows an empty-state card offering a
 // 4× draft drawn from the avatar, a blank grid, or the same draft for every
-// action at once, and a body-carrying action can give its 128 face up again
-// (the popup falls back to the 4× upscale).
+// action at once.
 //
 // THE LIBRARY MODEL still shapes this file: an ACTION belongs to the artwork,
 // not to a state, so this editor edits a shared definition —
 //
 //   * editing an action that four states play changes all four, on purpose.
-//     The preview's caption says 「被 4 个状态在用」 and the delete button asks
-//     the same question, so the sharing is VISIBLE instead of surprising;
+//     The picker's rows say 「被 4 个状态在用」 and the delete button asks the
+//     same question, so the sharing is VISIBLE instead of surprising;
 //   * deleting strips the action from every state that referenced it, and the
 //     two deletions that would invalidate the document (the last action, and
 //     the only action idle plays) are refused.
@@ -50,40 +46,62 @@
 // the user to manage, extend or reset.
 //
 // The studio FOLLOWS the skin picker: it shows the ACTIVE skin's artwork.
-// Built-ins are fully baked; the first stroke forks to 我的创作 automatically.
 // Selecting another skin reloads the whole studio.
+//
+// ── a built-in is READ-ONLY here ──
+//
+// A built-in's 动作 page is the SAME studio — same picker, same board, same
+// filmstrip — with every WRITE gated off: you look through its actions, and that
+// is all.  This page neither edits the frozen document nor copies it anywhere.
+// To draw, pick 我的创作 in the skin cards: that slot seeds itself from the
+// active skin (the WHOLE library, both faces and the state assignments), so the
+// single door into editing is the skin picker, where "which skin am I working
+// on" is the question being asked anyway.
+//
+// An earlier build forked on the FIRST EDIT instead — a stray click on the board
+// silently copied 15 MB of pixels into 我的创作 AND switched the active skin.
+// Nothing on this page writes now, and nothing here forks.
+//
+// TWO things it does NOT own itself, because the page owns the context:
+//
+//   * `actionId` — the action on the board is the page's `动作` selection (the
+//     master list is the other door to it), so the studio reports every change
+//     through `onActionChange` instead of keeping a private copy;
+//   * `rev` — a write that came from OUTSIDE (the library pane's bulk delete,
+//     the skin picker) must not leave this editor holding a stale document: it
+//     would show a deleted action, and its next commit would write the deleted
+//     action back.  The page bumps `rev`; an artifact-derived document is
+//     re-read (and the frozen sessions dropped) when the identity changed.
 
 import { React, h } from '../../host-deps.ts';
-import { GRIDS, AVATAR_GRID, BODY_GRID } from '../../pet/grids.ts';
-import { BUILTIN_NAMES, DEFAULT_SKIN, builtinArtwork } from '../../pet/skins/built-ins.ts';
+import { GRIDS, AVATAR_GRID, BODY_GRID, LIVE_ZOOM } from '../../pet/grids.ts';
+import { BUILTIN_NAMES, DEFAULT_SKIN } from '../../pet/skins/built-ins.ts';
 import {
   actionsOf,
   activeSkin,
+  libraryInfo,
+  removalIsBlocked,
+  removeLibraryTakes,
   onSkinChange,
   saveStored,
-  serializeArtwork,
-  parseArtworkExport,
   loadCustomArtwork,
   loadBrushes,
   seedArtworkFrom,
   paintCell,
   blankRows,
   findOrAdd,
-  adoptRows,
   cellFor,
   upscaleCell,
   hexPixel,
   pixelAt,
   usedBy,
   hasActionBody,
-  overwriteLibraryTake,
   setStateSelection,
   addLibraryTake,
   removeLibraryTake,
   renameLibraryTake,
   replaceLibraryTake,
   replaceFrameCell,
-  dropFrameCell,
   TRANSPARENT,
   MAX_LIBRARY,
   MAX_FRAMES,
@@ -93,7 +111,8 @@ import type {
   Action, ActionFrame, CustomArtwork, FrameCells, PropArt,
 } from '../../pet/skins/store.ts';
 import { PetPreview } from '../pet-preview.ts';
-import { FrameCanvas, ROW_THUMB_CSS, THUMB_CSS } from './frame-canvas.ts';
+import { ActionCombo } from './action-combo.ts';
+import { FrameCanvas, THUMB_CSS } from './frame-canvas.ts';
 import { field } from './field.ts';
 
 type GridKey = typeof AVATAR_GRID | typeof BODY_GRID;
@@ -110,11 +129,28 @@ interface Studio {
  *  accent.  The same shape a v9 `Cell` has. */
 type Face = { rows: string[]; prop?: PropArt };
 
-// The frame clipboard is its own thing: a frame copied from one action and
-// pasted into another (or the same one, later).  A frame carries BOTH faces, so
-// the clipboard is crop-independent — pasting into a body-carrying action gives
-// the pasted frame a 128 face too (see fitFrame).
-let clipboard: ActionFrame | null = null;
+// The studio SESSION: the action and the frame you were on, kept across a
+// mount.  The page swaps the studio for the 状态 view, and "look at the states"
+// must not throw away your place — the old page unmounted the editor on every
+// view switch, so it did.
+//
+// It is keyed by ARTWORK IDENTITY, which is exactly right: the store serves the
+// same in-memory document object while the document is unchanged, so a plain
+// remount finds its session; ANY write (another pane's, another skin's, a
+// reload) produces a new object and the session is dropped, because a position
+// in a document that no longer exists is worse than none.
+interface StudioSession {
+  art: CustomArtwork;
+  /** The action the board was on — so coming back from 状态 resumes it. */
+  actionId: string;
+  frame: number;
+}
+let session: StudioSession | null = null;
+
+/** Drop the session (a different document is on screen now). */
+function resetSession(): void {
+  session = null;
+}
 
 function blankFace(grid: number): Face {
   return { rows: blankRows(grid) };
@@ -159,8 +195,7 @@ function cloneFrame(f: ActionFrame): ActionFrame {
 }
 
 /** Give a frame the body face an action needs, by 4×-upscaling its avatar
- *  face.  Used by 粘贴 and by the draft buttons: within one ACTION the body is
- *  all-or-nothing. */
+ *  face.  Used by 复制一帧: within one ACTION the body is all-or-nothing. */
 function fitFrame(f: ActionFrame, body: boolean): ActionFrame {
   if (!body || f.cells[BODY_GRID]) return f;
   const avatar = f.cells[AVATAR_GRID];
@@ -196,16 +231,25 @@ function artworkFor(name: string): CustomArtwork {
   return seedArtworkFrom(BUILTIN_NAMES.includes(name) ? name : DEFAULT_SKIN);
 }
 
-/** Open the studio with `target` on the board when it exists (a jump from
- *  预览 · 按动作), else the first action.  The crop is NOT part of the studio's
- *  state any more: it only decides which FACE of the selected action is drawn,
- *  so switching it never switches the action. */
+/** Open the studio with `target` on the board when it exists (the 动作 master
+ *  list), else the current selection, else the first action.  The face is NOT
+ *  part of the studio's state: it only decides which FACE of the selected
+ *  action is drawn, so switching it never switches the action.
+ *
+ *  A remount of the SAME document (the page switching to 状态 and back) resumes
+ *  the session — same action, same frame — see `session`. */
 function loadStudio(target?: string): Studio {
   const name = activeSkin().name;
   const art = artworkFor(name);
   const library = actionsOf(art);
-  const wanted = target && library.some((a) => a.id === target) ? target : '';
-  return { skinName: name, art, actionId: wanted || (library[0] ? library[0].id : ''), frame: 0 };
+  if (session && session.art !== art) resetSession();
+  if (!session) session = { art, actionId: '', frame: 0 };
+  const hold = session!;
+  const fallback = library.some((a) => a.id === hold.actionId)
+    ? hold.actionId
+    : (library[0] ? library[0].id : '');
+  const wanted = target && library.some((a) => a.id === target) ? target : fallback;
+  return { skinName: name, art, actionId: wanted, frame: target ? 0 : hold.frame };
 }
 
 function FrameThumb(props: { face: Face; palette: string[]; grid: GridKey; active: boolean; label: string; onClick: () => void }) {
@@ -220,13 +264,25 @@ function FrameThumb(props: { face: Face; palette: string[]; grid: GridKey; activ
 
 export function PixelEditor(props: {
   t: (key: string, params?: Record<string, unknown>) => string;
-  /** Which FACE the studio draws.  Owned by the page's tab row, so 预览 and
-   * 编辑 always agree on the face being looked at / drawn on.  Both faces
+  /** Which FACE the studio draws.  The switch lives ON THE CANVAS ROW, because
+   * that is the only place the answer changes anything you do.  Both faces
    * belong to the SAME action (one library, one frame list). */
   grid?: GridKey;
-  /** The action to put on the board when the studio mounts — a jump from
-   * 预览 · 按动作.  Absent (the ordinary way in) means the first action. */
+  onGridChange?: (grid: number) => void;
+  /** The action on the board.  Owned by the PAGE (its 动作 master list is the
+   * ordinary way in), so the selection survives a view switch; the studio
+   * reports every change back through `onActionChange`.  Absent in a plain
+   * mount (the tests, an embedder): the studio keeps its own then, seeded by
+   * `loadStudio`. */
   actionId?: string;
+  onActionChange?: (id: string) => void;
+  /** Bumped by the page after a write that did not come from here (the library
+   * pane's bulk delete).  The document is re-read when its identity changed —
+   * see the header. */
+  rev?: number;
+  /** Called after every write this editor makes, so the page's master list
+   * re-reads the library it is showing. */
+  onWritten?: () => void;
 }) {
   const t = props.t;
   const grid: GridKey = props.grid === BODY_GRID ? BODY_GRID : AVATAR_GRID;
@@ -236,23 +292,11 @@ export function PixelEditor(props: {
   const [brushes, setBrushes] = React.useState(() => loadBrushes());
   const [brushIdx, setBrushIdx] = React.useState(0);
   const [erasing, setErasing] = React.useState(false);
-  const [ioText, setIoText] = React.useState('');
-  const [showIo, setShowIo] = React.useState(false);
   const [notice, setNotice] = React.useState('');
-  // The 导入 panel (see importAction): an inline picker, not a dialog, because
-  // choosing is a browse-by-thumbnail job and a modal would hide the board you
-  // are about to overwrite.
-  const [showImport, setShowImport] = React.useState(false);
-  const [importQuery, setImportQuery] = React.useState('');
-  const [error, setError] = React.useState('');
-  const [, setClipTick] = React.useState(0);
   // The synchronous mirror of studio.art — strokes never read a stale copy.
   const artRef = React.useRef(studio.art);
-  // Undo history is per mount: opening the studio starts a clean session.
-  const undoRef = React.useRef<CustomArtwork[]>([]);
-  const redoRef = React.useRef<CustomArtwork[]>([]);
-  // Guards the reload-on-skin-change subscription against our own commits
-  // (a fork writes custom synchronously, then the event fires).
+  // Guards the reload-on-skin-change subscription against our own commits (a
+  // write re-broadcasts, and the studio must not reload out from under itself).
   const skinNameRef = React.useRef(studio.skinName);
   // ── The board's cell cache ──
   // The board is grid×grid cells — 16,384 of them at the 128px face — and a
@@ -280,15 +324,16 @@ export function PixelEditor(props: {
       const first = actionsOf(fresh)[0];
       skinNameRef.current = name;
       artRef.current = fresh;
-      undoRef.current = [];
-      redoRef.current = [];
+      // Another skin = another document: no session crosses over.
+      resetSession();
+      session = { art: fresh, actionId: first ? first.id : '', frame: 0 };
       setStudio({ skinName: name, art: fresh, actionId: first ? first.id : '', frame: 0 });
     });
   }, []);
 
   // A jump from 预览 · 按动作 arrives as a prop while the studio may already be
   // mounted (the mode switch keeps it alive).  Selecting the target must not
-  // restart the undo history — it is the same session, different action.
+  // restart the session — it is the same document, different action.
   React.useEffect(() => {
     const want = props.actionId;
     if (!want || want === studio.actionId) return;
@@ -296,11 +341,42 @@ export function PixelEditor(props: {
     setStudio({ ...studio, actionId: want, frame: 0 });
   }, [props.actionId]);
 
+  // A write from OUTSIDE (the library pane's bulk delete, the skin picker):
+  // re-read the document when its identity differs from ours, and drop a session
+  // that describes a document nobody has any more.  Skipped when the store hands
+  // back the object we already hold, so our own writes are no-ops.
+  React.useEffect(() => {
+    if (props.rev === undefined) return;
+    const fresh = artworkFor(activeSkin().name);
+    if (fresh === artRef.current) return;
+    const name = activeSkin().name;
+    const library = actionsOf(fresh);
+    const keep = library.some((a) => a.id === studio.actionId) ? studio.actionId : '';
+    skinNameRef.current = name;
+    artRef.current = fresh;
+    resetSession();
+    session = { art: fresh, actionId: keep, frame: 0 };
+    setStudio({ skinName: name, art: fresh, actionId: keep || (library[0] ? library[0].id : ''), frame: 0 });
+  }, [props.rev]);
+
   const art = studio.art;
-  const isCustom = studio.skinName === 'custom';
+  // The session follows what is on screen, so a remount resumes exactly here.
+  if (session) {
+    session.art = art;
+    session.actionId = studio.actionId;
+    session.frame = studio.frame;
+  }
+  /** Whether the document on the board may be WRITTEN.  A built-in is a
+   *  VIEWER: its pixels are frozen, every writing control is gated off, and
+   *  nothing here copies the artwork either — 我的创作 seeds itself from the
+   *  active skin when you pick it. */
+  const editable = studio.skinName === 'custom';
   const library = actionsOf(art);
-  // The selection SELF-HEALS: deleting the selected action or importing a
-  // library must never leave the board pointing at nothing.
+  // The picker's rows want the SAME read-outs the page's library uses (frames,
+  // body frames, who plays it), so it gets LibraryEntryInfo, not raw actions.
+  const libraryRows = libraryInfo(art);
+  // The selection SELF-HEALS: deleting the selected action, or a bulk delete
+  // from the picker's footer, must never leave the board pointing at nothing.
   const selectedId = library.some((a) => a.id === studio.actionId)
     ? studio.actionId
     : (library[0] ? library[0].id : '');
@@ -310,7 +386,6 @@ export function PixelEditor(props: {
   const frame = frames[frameIdx];
   const actionUses = action ? usedBy(art, action.id) : [];
   const spec = GRIDS[AVATAR_GRID];
-  const hasBody = !!action && hasActionBody(action);
   // The 128 board is EMPTY when this frame carries no body face: the action is
   // body-less (the normal case — the popup shows the 4× draft) or this one
   // frame is (a hand-written document), and either way the honest thing to show
@@ -327,48 +402,25 @@ export function PixelEditor(props: {
     !moved ? ''
       : ' ' + (offY < 0 ? '↑' + -offY : offY > 0 ? '↓' + offY : '')
         + (offX < 0 ? '←' + -offX : offX > 0 ? '→' + offX : '');
-  const actionLabel = (a: { id: string; name?: string }, i: number) =>
-    a.name || t('settings.actionN', { n: i + 1 });
-  // One option per action: its name, how long its loop is, whether it carries a
-  // body face, and who plays it — the sharing read-out, so the compact dropdown
-  // still warns what an edit (or a delete) reaches.
-  const actionOption = (a: Action, i: number) =>
-    actionLabel(a, i)
-      + ' · ' + t('settings.actionFrames', { n: a.frames.length })
-      + (hasActionBody(a) ? '' : ' · ' + t('settings.noBody'))
-      + ' · ' + (usedBy(art, a.id).length
-        ? t('settings.usedByN', { n: usedBy(art, a.id).length })
-        : t('settings.unusedAction'));
-
-  function commit(nextArt: CustomArtwork, patch?: Partial<Studio>) {
-    undoRef.current.push(artRef.current);
-    if (undoRef.current.length > 50) undoRef.current.shift();
-    redoRef.current.length = 0;
+  /** Store a new document.  `silent` opts OUT of the page notification: a
+   *  pixel stroke changes no read-out in the library master list, and the page
+   *  re-rendering (and re-rendering this studio with it) on every painted cell
+   *  is exactly the cost a drag must not pay. */
+  function commit(nextArt: CustomArtwork, patch?: Partial<Studio>, opts?: { silent?: boolean }) {
+    // A built-in is a VIEW.  Nothing on this page writes to it, and nothing
+    // copies it either: editing a built-in means picking 我的创作, which seeds
+    // itself from the active skin (see `skin-picker.ts`).  This guard is the
+    // last line of that promise — a mutator that slipped past the gated
+    // controls still cannot touch the frozen document.
+    if (!editable) return;
     artRef.current = nextArt;
-    // Mark the fork BEFORE the event fires, so the subscription ignores it.
-    skinNameRef.current = 'custom';
     saveStored({ skin: 'custom', custom: nextArt });
-    setStudio({ ...studio, skinName: 'custom', art: nextArt, ...patch });
-    setError('');
+    const patch2 = patch || {};
+    hold(nextArt, patch2.actionId || studio.actionId, patch2.frame !== undefined ? patch2.frame : studio.frame);
+    setStudio({ ...studio, art: nextArt, ...patch });
+    if (patch && patch.actionId) announce(patch.actionId);
     setNotice('');
-  }
-
-  function undo() {
-    const prev = undoRef.current.pop();
-    if (!prev) return;
-    redoRef.current.push(artRef.current);
-    artRef.current = prev;
-    saveStored({ skin: 'custom', custom: prev });
-    setStudio({ ...studio, skinName: 'custom', art: prev, frame: 0 });
-  }
-
-  function redo() {
-    const next = redoRef.current.pop();
-    if (!next) return;
-    undoRef.current.push(artRef.current);
-    artRef.current = next;
-    saveStored({ skin: 'custom', custom: next });
-    setStudio({ ...studio, skinName: 'custom', art: next, frame: 0 });
+    if (!(opts && opts.silent)) wrote();
   }
 
   // The live selection at CALL TIME (never the render closure, so rapid
@@ -385,8 +437,31 @@ export function PixelEditor(props: {
 
   // ── the library ──
 
+  /** Tell the page which action is on the board (it owns the selection; its
+   *  master list is the other door to the same value). */
+  function announce(id: string) {
+    if (props.onActionChange && id) props.onActionChange(id);
+  }
+
+  /** Tell the page the library changed, so its master list re-reads it. */
+  function wrote() {
+    if (props.onWritten) props.onWritten();
+  }
+
+  /** Point the SESSION at the document now on screen.  This happens at WRITE
+   *  time, not on the next render: a stroke followed by a view switch (or a
+   *  remount) must find the session even if React has not rendered again yet —
+   *  the store has already accepted the document at this point. */
+  function hold(nextArt: CustomArtwork, actionId: string, frame: number) {
+    if (!session) return;
+    session.art = nextArt;
+    session.actionId = actionId;
+    session.frame = frame;
+  }
+
   function selectAction(id: string) {
     setStudio({ ...studio, actionId: id, frame: 0 });
+    announce(id);
   }
 
   /** A fresh, empty action.  `unique` matters: an identical blank already in
@@ -426,13 +501,25 @@ export function PixelEditor(props: {
     commit(next, { actionId: first ? first.id : '', frame: 0 });
   }
 
-  /** Renaming is deliberately NOT an undo step: typing a name would otherwise
-   *  flood the 50-deep history with one entry per keystroke.  The field is
-   *  UNCONTROLLED and commits on blur/Enter for the same reason — a commit
-   *  serialises the whole artwork (up to ~15MB once the built-in library is
-   *  imported), which is far too much work to do per character.  Its `key` is
-   *  the selected id, so choosing another action remounts it with that action's
-   *  name instead of leaving the previous one on screen. */
+  /** 批量删除, from the picker's footer.  ONE write for the whole selection, and
+   * the board lands on an action that still exists. */
+  function removeActions(ids: string[]) {
+    const { cur, id } = current();
+    if (!ids.length || removalIsBlocked(cur, ids)) return;
+    const next = removeLibraryTakes(cur, ids);
+    if (next === cur) return;
+    const list = actionsOf(next);
+    const keep = list.some((a) => a.id === id) ? id : (list[0] ? list[0].id : '');
+    commit(next, { actionId: keep, frame: 0 });
+    setNotice(t('settings.actionsRemoved', { n: ids.length }));
+  }
+
+  /** Renaming is deliberately NOT a step of its own in the commit path: the
+   *  field is UNCONTROLLED and commits on blur/Enter, because a commit
+   *  serialises the whole artwork (up to ~15MB), which is far too much work to
+   *  do per character.  Its `key` is the selected id, so choosing another
+   *  action remounts it with that action's name instead of leaving the previous
+   *  one on screen. */
   function renameAction(name: string) {
     const { cur, id } = current();
     if (!id) return;
@@ -440,59 +527,9 @@ export function PixelEditor(props: {
     artRef.current = next;
     skinNameRef.current = 'custom';
     saveStored({ skin: 'custom', custom: next });
+    hold(next, studio.actionId, studio.frame);
     setStudio({ ...studio, skinName: 'custom', art: next });
-  }
-
-  /** 导入: overwrite the action being edited with a chosen one — a built-in
-   *  animation, or one of this artwork's OWN actions.
-   *
-   *  The ID stays, so every state that plays this action keeps playing it; only
-   *  the content changes.  That is what makes 导入 the natural way to fill a
-   *  slot: 新建动作 → 导入 → draw.  An action is ONE thing, so BOTH FACES come
-   *  along, together with its frame count, pace and name — importing a built-in
-   *  body into an action that had none is exactly how a full-bodied action is
-   *  born.  The source's colours are re-pointed at THIS artwork's palette
-   *  (`adoptRows`), because a built-in's slot 7 is not this document's slot 7;
-   *  one 撤销 brings the previous drawing back. */
-  function importAction(source: Action, srcArt: CustomArtwork, label: string) {
-    const { cur, id, action: act } = current();
-    if (!act || !id) return;
-    let palette = cur.palette;
-    const adoptFace = (face: Face): Face => {
-      const adopted = adoptRows(face.rows, srcArt.palette, palette);
-      palette = adopted.palette;
-      let prop: PropArt | undefined;
-      if (face.prop) {
-        const p = adoptRows(face.prop.rows, srcArt.palette, palette);
-        palette = p.palette;
-        prop = { ...face.prop, rows: p.rows };
-      }
-      return prop ? { rows: adopted.rows, prop } : { rows: adopted.rows };
-    };
-    const frames = source.frames.map((f) => {
-      const cells: FrameCells = { [AVATAR_GRID]: adoptFace(f.cells[AVATAR_GRID]) };
-      for (const key of Object.keys(f.cells)) {
-        const g = Number(key);
-        if (g === AVATAR_GRID) continue;
-        const face = f.cells[g];
-        if (face) cells[g] = adoptFace(face);
-      }
-      const out: ActionFrame = { cells };
-      if (f.ms !== undefined) out.ms = f.ms;
-      if (f.dx) out.dx = f.dx;
-      if (f.dy) out.dy = f.dy;
-      return out;
-    });
-    commit(
-      overwriteLibraryTake({ ...cur, palette }, id, {
-        frameMs: source.frameMs,
-        frames,
-        name: source.name,
-        origin: source.origin,
-      }),
-      { frame: 0 },
-    );
-    setNotice(t('settings.importedOne', { name: label }));
+    wrote();
   }
 
   // ── the body face (per action) ──
@@ -519,16 +556,6 @@ export function PixelEditor(props: {
     }
     commit(next);
     setNotice(t('settings.genBodyAllDone'));
-  }
-
-  /** Give this action's 128 face up again: the popup goes back to the avatar at
-   *  4×, and nothing else about the action changes. */
-  function removeBody() {
-    const { cur, id, action: act } = current();
-    if (!act || !id) return;
-    let next = cur;
-    for (let i = 0; i < act.frames.length; i++) next = dropFrameCell(next, id, i, BODY_GRID);
-    commit(next);
   }
 
   // ── frames ──
@@ -562,16 +589,6 @@ export function PixelEditor(props: {
     withFrames(curFrames.filter((_, i) => i !== frameIdx), { frame: Math.max(0, frameIdx - 1) });
   }
 
-  function moveFrame(dir: -1 | 1) {
-    const { frames: curFrames } = current();
-    const j = frameIdx + dir;
-    if (j < 0 || j >= curFrames.length) return;
-    const next = curFrames.slice();
-    next[frameIdx] = next[j];
-    next[j] = curFrames[frameIdx];
-    withFrames(next, { frame: j });
-  }
-
   // 整幅挪动 — move this whole frame as one, one AVATAR cell per press (the
   // body renders ×4, so the two faces hop together).  Not a redraw: the pixels
   // are untouched, which is what makes a bob easy.
@@ -593,7 +610,7 @@ export function PixelEditor(props: {
       i === frameIdx ? { ...f, dx: undefined, dy: undefined } : f));
   }
 
-  // An accent imported with a built-in action rides OVER the body: it is not
+  // An accent that came with a built-in action rides OVER the body: it is not
   // part of the board (the studio paints `rows`), so the only honest thing the
   // studio can do with one is say it exists and drop it — from the FACE whose
   // frame carries it.
@@ -618,25 +635,6 @@ export function PixelEditor(props: {
     commit(replaceLibraryTake(cur, id, { frameMs: v, frames: curFrames }));
   }
 
-  // ── clipboard (frames) ──
-
-  function copyFrame() {
-    const { frames: curFrames } = current();
-    if (!curFrames[frameIdx]) return;
-    clipboard = cloneFrame(curFrames[frameIdx]);
-    setClipTick((v) => v + 1);
-  }
-
-  function paste() {
-    if (!clipboard) return;
-    const { frames: curFrames, action: act } = current();
-    if (curFrames.length >= MAX_FRAMES) return;
-    const body = !!act && hasActionBody(act);
-    const f = fitFrame(clipboard, body);
-    withFrames(curFrames.slice(0, frameIdx + 1).concat([cloneFrame(f)], curFrames.slice(frameIdx + 1)),
-      { frame: frameIdx + 1 });
-  }
-
   // ── pixels ──
   //
   // A pixel stores the COLOUR it was painted with, not a reference to a brush:
@@ -645,6 +643,7 @@ export function PixelEditor(props: {
   // would.
 
   function applyPaint(y: number, x: number) {
+    if (!editable) return;
     const cur = artRef.current;
     const { id, action: act, frames: curFrames } = current();
     if (!act || !id) return;
@@ -663,11 +662,12 @@ export function PixelEditor(props: {
     }
     const next: Face = { rows: paintCell(base.rows, y, x, tok) };
     if (base.prop) next.prop = base.prop;
-    commit(replaceFrameCell({ ...cur, palette }, id, frameIdx, grid, next));
+    commit(replaceFrameCell({ ...cur, palette }, id, frameIdx, grid, next), undefined, { silent: true });
   }
 
   // Eyedropper: the pixel's colour becomes the current brush's colour.
   function pickColour(y: number, x: number) {
+    if (!editable) return;
     const f = current().frames[frameIdx];
     const base = f && f.cells[grid];
     if (!base) return;
@@ -695,43 +695,15 @@ export function PixelEditor(props: {
     saveBrushes(next);
   }
 
-  // ── import / export ──
-
-  function doExport() {
-    setIoText(serializeArtwork(art));
-    setError('');
-  }
-
-  function doImport() {
-    const res = parseArtworkExport(ioText);
-    if (res.errors) {
-      setError(t('settings.importError'));
-      return;
-    }
-    const first = actionsOf(res.data)[0];
-    commit(res.data, { actionId: first ? first.id : '', frame: 0 });
-  }
-
-  // ── keyboard: mod+z / mod+shift+z ──
-
-  function onKeyDown(e: { key?: string; metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean; preventDefault?: () => void }) {
-    if (!(e.metaKey || e.ctrlKey) || (e.key || '').toLowerCase() !== 'z') return;
-    if (e.preventDefault) e.preventDefault();
-    if (e.shiftKey) redo();
-    else undo();
-  }
-
   // ── render ──
 
   const miniBtn = 'status-pet-mini-button';
-  const canPaste = !!clipboard;
   const libraryFull = library.length >= MAX_LIBRARY;
-  const faceLabel = t('settings.grid.' + grid);
   const faceProp = frame && frame.cells[grid] ? frame.cells[grid]!.prop : undefined;
 
   // Point the cache at THIS render's mutators, and drop it when the palette
-  // array is replaced (a new colour, a seed, an import): a built cell's colour
-  // is the one thing it cannot re-check by itself.
+  // array is replaced (a new colour, a seed, a document swap): a built cell's
+  // colour is the one thing it cannot re-check by itself.
   boardRef.current.paint = applyPaint;
   boardRef.current.pick = pickColour;
   if (boardRef.current.palette !== art.palette) {
@@ -783,199 +755,192 @@ export function PixelEditor(props: {
   const board = faceGap
     ? h('div', { className: 'status-pet-empty-body' },
         h('div', null, t('settings.emptyBody')),
-        h('div', { className: 'status-pet-colors' },
-          h('button', { type: 'button', className: miniBtn, onClick: generateBodyDraft }, t('settings.genBody')),
-          h('button', { type: 'button', className: miniBtn, onClick: blankBody }, t('settings.blankBody')),
-          h('button', {
-            type: 'button', className: miniBtn, onClick: generateAllBodies,
-            title: t('settings.genBodyAllHint'),
-          }, t('settings.genBodyAll')),
-        ))
-    : h('div', { className: 'status-pet-board-wrap' },
+        editable
+          ? h('div', { className: 'status-pet-colors' },
+              h('button', { type: 'button', className: miniBtn, onClick: generateBodyDraft }, t('settings.genBody')),
+              h('button', { type: 'button', className: miniBtn, onClick: blankBody }, t('settings.blankBody')),
+              h('button', {
+                type: 'button', className: miniBtn, onClick: generateAllBodies,
+                title: t('settings.genBodyAllHint'),
+              }, t('settings.genBodyAll')),
+            )
+          : null)
+    : h('div', { className: 'status-pet-board-wrap' + (editable ? '' : ' status-pet-board-readonly') },
         h('div', { className: 'status-pet-grid' },
           shownFace.rows.map((row, y) => boardRow(row, y))
         ),
-        !action
+        !action && editable
           ? h('div', { className: 'status-pet-takeover' },
               h('button', { type: 'button', className: miniBtn, onClick: newAction }, t('settings.newAction')))
           : null
       );
 
-  // ── 导入 ── the picker.  Two sources — the built-in's library (whale-chan is
-  // the only built-in) and this artwork's OWN actions — and NEITHER is filtered
-  // by the current face, because an ACTION carries both of them: the thumbnail
-  // shows the face you are drawing, and picking a row replaces the whole action.
-  // A row is a button (see importAction).  Rows are thumbnails because pixel
-  // animations are recognised by eye, and 106 built-in actions need the search
-  // box above them.
-  function importPanel() {
-    const q = importQuery.trim().toLowerCase();
-    const matches = (a: Action, i: number) =>
-      !q || (actionLabel(a, i) + ' ' + a.origin + ' ' + a.id).toLowerCase().includes(q);
-    const builtin = builtinArtwork(DEFAULT_SKIN) || null;
-    const groups = [
-      { key: 'builtin', label: t('settings.importSource.builtin'), src: builtin, list: builtin ? actionsOf(builtin) : [] },
-      { key: 'mine', label: t('settings.importSource.mine'), src: art, list: library },
-    ];
-    const row = (a: Action, src: CustomArtwork, index: number) => {
-      const text = actionLabel(a, index);
-      const current = src === art && !!action && a.id === action.id;
-      return h('button', {
-        key: (src === art ? 'mine:' : 'builtin:') + a.id,
-        type: 'button',
-        className: 'status-pet-library-row status-pet-import-row',
-        'aria-label': text,
-        title: a.origin ? text + ' · ' + a.origin : text,
-        onClick: () => importAction(a, src, text),
-      },
-        h(FrameCanvas, { frame: faceFor(a.frames[0], grid), palette: src.palette, grid, css: ROW_THUMB_CSS }),
-        h('span', { className: 'status-pet-library-name' }, text),
-        h('span', { className: 'status-pet-library-meta' },
-          t('settings.actionFrames', { n: a.frames.length })
-            + (hasActionBody(a) ? '' : ' · ' + t('settings.noBody'))
-            + (current ? ' · ' + t('settings.importCurrent') : ''))
-      );
-    };
-    const shown = groups.map((g) => {
-      const list = g.src ? g.list.filter(matches) : [];
-      if (!g.src || !list.length) return null;
-      return h('div', { key: g.key, className: 'status-pet-import-group' },
-        h('div', { className: 'status-pet-import-group-title' }, g.label),
-        h('div', { className: 'status-pet-import-list' },
-          list.map((a) => row(a, g.src as CustomArtwork, g.list.indexOf(a))))
-      );
-    });
-    return h('div', { className: 'status-pet-import' },
-      h('input', {
-        type: 'search',
-        className: 'status-pet-import-search',
-        value: importQuery,
-        placeholder: t('settings.importSearch'),
-        'aria-label': t('settings.importSearch'),
-        onChange: (e: { target: { value: string } }) => setImportQuery(e.target.value),
-      }),
-      h('div', { className: 'status-pet-import-body' }, ...shown),
-      h('div', { className: 'status-pet-hint' }, t('settings.importHint'))
-    );
-  }
-
   // No role="tabpanel" here: the PAGE owns the panel for whichever mode the
   // 编辑 tab is showing, so mounting the studio directly never nests two
-  // tabpanels (and the keyboard undo handler stays with the board).
-  return h('div', { className: 'status-pet-studio', onKeyDown },
+  // tabpanels.
+  return h('div', { className: 'status-pet-studio' },
     h('div', { className: 'status-pet-canvas-card' },
 
-      // ── 动作 ── WHICH action the board edits: one native dropdown over the
-      // whole library, plus the ops that belong to an action (its name, and
-      // new / delete / import / its body face).  It never mentions a state —
-      // deciding what a state plays is 按状态's job.
+      // ── 动作 ── WHICH action the board edits: ONE row that picks it, and a
+      // second row that names it and carries the two verbs that belong to the
+      // library (新建动作 / 删除动作).  It never mentions a state — deciding what
+      // a state plays is 按状态's job.
       field('action', t('settings.region.action'), t('settings.actionHint'),
-        library.length
-          ? h('select', {
-              className: 'status-pet-select status-pet-action-select',
-              value: selectedId,
-              'aria-label': t('settings.region.action'),
-              onChange: (e: { target: { value: string } }) => selectAction(e.target.value),
-            },
-              library.map((a, i) => h('option', { key: a.id, value: a.id }, actionOption(a, i)))
+        h('div', { className: 'status-pet-action-row' },
+          // The list IS the picker: search, preview and selection in one control,
+          // so the studio keeps the pane's full width for the board.  批量删除 is
+          // its footer — the library's destructive op still lives beside the
+          // library.
+          library.length
+            ? h(ActionCombo, {
+                t,
+                library: libraryRows,
+                art,
+                grid,
+                value: selectedId,
+                onSelect: selectAction,
+                canManage: editable,
+                removalBlocked: (ids: string[]) => removalIsBlocked(artRef.current, ids),
+                onRemove: removeActions,
+              })
+            : h('span', { className: 'status-pet-hint' }, t('settings.emptyLibrary')),
+        ),
+        // The name and the verbs are about the action you PICKED, not about
+        // picking one: they share the second row, and a built-in (a viewer) has
+        // neither.
+        editable
+          ? h('div', { className: 'status-pet-action-row' },
+              action
+                ? h('div', { className: 'status-pet-num-field status-pet-action-name-field' },
+                    h('span', { className: 'status-pet-prop-label', title: t('settings.actionNameHint') },
+                      t('settings.actionName')),
+                    h('input', {
+                      // The key carries the NAME as well as the id: a rename while
+                      // the id stays would leave an uncontrolled input showing the
+                      // old one.
+                      key: selectedId + '|' + (action.name || ''),
+                      type: 'text',
+                      className: 'status-pet-number status-pet-action-name',
+                      defaultValue: action.name || '',
+                      maxLength: 40,
+                      placeholder: t('settings.actionN', { n: library.indexOf(action) + 1 }),
+                      'aria-label': t('settings.actionName'),
+                      onBlur: (e: { target: { value: string } }) => renameAction(e.target.value),
+                      onKeyDown: (e: { key?: string; target?: { blur?: () => void } }) => {
+                        if (e.key === 'Enter' && e.target && e.target.blur) e.target.blur();
+                      },
+                    }))
+                : null,
+              h('button', {
+                type: 'button', className: miniBtn, onClick: newAction, disabled: libraryFull,
+                'aria-label': t('settings.newAction'),
+                title: libraryFull ? t('settings.libraryFull') : t('settings.newAction'),
+              }, '+ ' + t('settings.newAction')),
+              action
+                ? h('button', {
+                    type: 'button', className: miniBtn, onClick: deleteAction, disabled: !canDeleteAction(),
+                    'aria-label': t('settings.deleteAction'),
+                    title: actionUses.length
+                      ? t('settings.deleteUsed', { n: actionUses.length })
+                      : t('settings.deleteAction'),
+                  }, '× ' + t('settings.deleteAction'))
+                : null,
             )
-          : h('span', { className: 'status-pet-hint' }, t('settings.emptyLibrary')),
-        isCustom
-          ? h('button', {
-              type: 'button', className: miniBtn, onClick: newAction, disabled: libraryFull,
-              'aria-label': t('settings.newAction'),
-              title: libraryFull ? t('settings.libraryFull') : t('settings.newAction'),
-            }, '+ ' + t('settings.newAction'))
           : null,
-        isCustom && action
-          ? h('button', {
-              type: 'button', className: miniBtn, onClick: deleteAction, disabled: !canDeleteAction(),
-              'aria-label': t('settings.deleteAction'),
-              title: actionUses.length
-                ? t('settings.deleteUsed', { n: actionUses.length })
-                : t('settings.deleteAction'),
-            }, '× ' + t('settings.deleteAction'))
-          : null,
-        // The body face belongs to the ACTION: it can be drawn, and it can be
-        // given up again (the popup then shows the avatar at 4×).
-        isCustom && action && hasBody
-          ? h('button', {
-              type: 'button', className: miniBtn, onClick: removeBody,
-              'aria-label': t('settings.removeBody'),
-              title: t('settings.removeBodyHint'),
-            }, '⊖ ' + t('settings.removeBody'))
-          : null,
-        isCustom && action
-          ? h('div', { className: 'status-pet-num-field' },
-              h('span', { className: 'status-pet-prop-label', title: t('settings.actionNameHint') },
-                t('settings.actionName')),
-              h('input', {
-                // The key carries the NAME as well as the id: an import
-                // rewrites the name while the id stays, and an uncontrolled
-                // input would otherwise keep showing the old one.
-                key: selectedId + '|' + (action.name || ''),
-                type: 'text',
-                className: 'status-pet-number status-pet-action-name',
-                defaultValue: action.name || '',
-                maxLength: 40,
-                placeholder: t('settings.actionN', { n: library.indexOf(action) + 1 }),
-                'aria-label': t('settings.actionName'),
-                onBlur: (e: { target: { value: string } }) => renameAction(e.target.value),
-                onKeyDown: (e: { key?: string; target?: { blur?: () => void } }) => {
-                  if (e.key === 'Enter' && e.target && e.target.blur) e.target.blur();
-                },
-              }))
-          : null,
-        isCustom && action
-          ? h('button', {
-              type: 'button',
-              className: miniBtn + (showImport ? ' active' : ''),
-              'aria-expanded': showImport ? 'true' : 'false',
-              'aria-label': t('settings.importAction'),
-              title: t('settings.importHint'),
-              onClick: () => { setShowImport(!showImport); setImportQuery(''); },
-            }, '⤓ ' + t('settings.importAction'))
-          : null,
-        showImport && action ? importPanel() : null,
       ),
 
-      // ── 画布 ── the board and, beside it, the ACTION's live preview.  The crop
-      // switch stays on the page's tab row (it belongs to both tabs), so the
-      // stage only labels the FACE it is showing.
+      // ── 画布 ── the board and, beside it, the ACTION's live preview.  The
+      // face switch belongs to whatever picture is in front of you, so it sits
+      // ON the canvas row and the stage only labels the face it is showing.
       field('canvas', t('settings.region.canvas'), undefined,
+        // 头像 / 全身 sits ON TOP of the canvas, because it decides which face of
+        // the action the board draws — and it is the only thing it ever changes.
+        h('div', { className: 'status-pet-face-switch', role: 'group', 'aria-label': t('settings.face') },
+          [AVATAR_GRID, BODY_GRID].map((g) =>
+            h('button', {
+              key: g,
+              type: 'button',
+              className: 'status-pet-mini-button' + (grid === g ? ' active' : ''),
+              'aria-pressed': grid === g ? 'true' : 'false',
+              title: t('settings.grid.' + g + 'Hint'),
+              onClick: () => { if (props.onGridChange) props.onGridChange(g); },
+            }, t('settings.grid.' + g))
+          )
+        ),
         h('div', { className: 'status-pet-stage' },
-          h('div', { className: 'status-pet-stage-cell' },
-            h('span', { className: 'status-pet-stage-caption' },
-              faceLabel + (grid === BODY_GRID && !hasBody ? ' · ' + t('settings.bodyFromAvatar') : '')),
-            board
-          ),
+          h('div', { className: 'status-pet-stage-cell' }, board),
+          // The preview is a PICTURE and nothing else: no caption, no link, no
+          // numbers — the picker's rows already say who plays what.  It is
+          // small (the popup's own 1:2 display size) so the pair always fits on
+          // ONE row beside the board.
           h('div', { className: 'status-pet-stage-cell status-pet-inspect' },
-            h('span', { className: 'status-pet-stage-caption' },
-              t('settings.region.preview')
-                + (action
-                    ? ' · ' + (actionUses.length
-                      ? t('settings.usedByN', { n: actionUses.length })
-                      : t('settings.unusedAction'))
-                    : '')),
-            // The board edits ONE action, so the preview pins it: nothing else
-            // is on screen and nothing has to be shuffled.  No `scale` prop:
-            // each face lands on its own ratio (32 drawn at 4×, 128 at 1×), so a
-            // body-less action previews exactly the 4× draft the popup shows.
             h(PetPreview, {
               skinName: studio.skinName,
               grid: grid,
               takeId: selectedId,
+              zoom: LIVE_ZOOM,
               interactive: false,
             })
           )
         )
       ),
 
+      // ── 帧 ── the filmstrip of the SELECTED ACTION (ONE list — both faces
+      // share it) and, at its end, the frame ops.  Duplicating the frame you are
+      // looking at IS how an animation gets made ("draw one, copy it, nudge
+      // it"), so it leads the group.  All of it is a WRITE: a built-in keeps the
+      // filmstrip — which is how you LOOK at its frames — and loses the ops.
+      action
+        ? field('frames', t('settings.field.frames'), t('settings.region.frames'),
+            h('div', { className: 'status-pet-filmstrip' },
+              frames.map((f, i) =>
+                h(FrameThumb, {
+                  key: i,
+                  face: faceFor(f, grid),
+                  palette: art.palette,
+                  grid: grid,
+                  active: i === frameIdx,
+                  label: t('settings.frameN', { n: i + 1 }),
+                  onClick: () => setStudio({ ...studio, frame: i }),
+                })
+              ),
+              // The three ops are ONE group that stays together wherever the
+              // strip wraps, instead of 删除此帧 living on a row of its own.
+              editable
+                ? h('div', { className: 'status-pet-frame-ops' },
+                    frames.length < MAX_FRAMES
+                      ? h('button', {
+                          type: 'button', className: miniBtn,
+                          'aria-label': t('settings.addFrame'), title: t('settings.addFrame'),
+                          onClick: addFrame,
+                        }, '⧉ ' + t('settings.addFrame'))
+                      : null,
+                    frames.length < MAX_FRAMES
+                      ? h('button', {
+                          type: 'button', className: miniBtn,
+                          'aria-label': t('settings.addBlankFrame'), title: t('settings.addBlankFrame'),
+                          onClick: addBlankFrame,
+                        }, '+ ' + t('settings.addBlankFrame'))
+                      : null,
+                    frames.length > 1
+                      ? h('button', {
+                          type: 'button', className: miniBtn,
+                          'aria-label': t('settings.delFrame'), title: t('settings.delFrame'),
+                          onClick: deleteFrame,
+                        }, '× ' + t('settings.delFrame'))
+                      : null,
+                  )
+                : null,
+            )
+          )
+        : null,
+
       // ── 画笔 ── the paint box.  Each well IS a brush: click it to paint with
       // it, click the well again to change its colour (native picker).  What a
       // brush paints with is baked into the pixels, so editing a brush never
-      // touches the board, and there is nothing to add or reset.
-      field('brushes', t('settings.region.palette'), undefined,
+      // touches the board, and there is nothing to add or reset.  A built-in
+      // has no board to paint, so it has no brushes.
+      editable ? field('brushes', t('settings.region.palette'), undefined,
         h('button', {
           key: 'eraser',
           type: 'button',
@@ -999,63 +964,15 @@ export function PixelEditor(props: {
             onChange: (e: { target: { value: string } }) => setBrush(i, e.target.value),
           })
         )
-      ),
-
-      // ── 帧 ── the filmstrip of the SELECTED ACTION (ONE list — both faces
-      // share it), the two ways to add a frame, and the ops on the frame LIST.
-      // Duplicating the frame you are looking at IS how an animation gets made
-      // ("draw one, copy it, nudge it"), so it leads.
-      action
-        ? field('frames', t('settings.field.frames'), t('settings.region.frames'),
-            h('div', { className: 'status-pet-filmstrip' },
-              frames.map((f, i) =>
-                h(FrameThumb, {
-                  key: i,
-                  face: faceFor(f, grid),
-                  palette: art.palette,
-                  grid: grid,
-                  active: i === frameIdx,
-                  label: t('settings.frameN', { n: i + 1 }),
-                  onClick: () => setStudio({ ...studio, frame: i }),
-                })
-              ),
-              frames.length < MAX_FRAMES
-                ? h('button', {
-                    type: 'button', className: miniBtn,
-                    'aria-label': t('settings.addFrame'), title: t('settings.addFrame'),
-                    onClick: addFrame,
-                  }, '⧉ ' + t('settings.addFrame'))
-                : null,
-              frames.length < MAX_FRAMES
-                ? h('button', {
-                    type: 'button', className: miniBtn,
-                    'aria-label': t('settings.addBlankFrame'), title: t('settings.addBlankFrame'),
-                    onClick: addBlankFrame,
-                  }, '+ ' + t('settings.addBlankFrame'))
-                : null,
-            ),
-            h('div', { className: 'status-pet-frame-nav' },
-              frames.length > 1
-                ? h('button', { type: 'button', className: miniBtn, onClick: deleteFrame }, '× ' + t('settings.delFrame'))
-                : null,
-              h('button', { type: 'button', className: miniBtn, 'aria-label': t('settings.framePrev'), title: t('settings.framePrev'), onClick: () => moveFrame(-1) }, '←'),
-              h('button', { type: 'button', className: miniBtn, 'aria-label': t('settings.frameNext'), title: t('settings.frameNext'), onClick: () => moveFrame(1) }, '→'),
-              // one button, one honest label: what is on the clipboard decides
-              canPaste && frames.length < MAX_FRAMES
-                ? h('button', { type: 'button', className: miniBtn, title: t('settings.paste'), onClick: paste }, t('settings.paste'))
-                : (frames.length < MAX_FRAMES
-                    ? h('button', { type: 'button', className: miniBtn, title: t('settings.copyFrame'), onClick: copyFrame }, t('settings.copyFrame'))
-                    : null),
-            )
-          )
-        : null,
+      ) : null,
 
       // ── 当前帧 ── the selected frame's own numbers: how long it is shown, and
       // where the whole frame sits (整幅挪动 — the pixels are never redrawn).
       // Every one of them is SHARED by the two faces, which is the point of the
       // paired model: 「整幅挪动」 is authored in avatar cells and the body renders
-      // it ×4, so one press is the same hop on both.
-      action && frame
+      // it ×4, so one press is the same hop on both.  All of it is a WRITE, so a
+      // built-in does not carry the row.
+      editable && action && frame
         ? field('frame', t('settings.region.frame'), undefined,
             h('div', { className: 'status-pet-num-field' },
               h('span', { className: 'status-pet-prop-label' }, t('settings.frameLen')),
@@ -1085,20 +1002,24 @@ export function PixelEditor(props: {
             // 整幅挪动 — press an arrow, the whole frame moves one avatar cell
             // (four at the body face).  The label carries the read-out (e.g.
             // 整幅挪动 ↓1) so the current move is visible without any x/y
-            // notation.
-            h('span', { className: 'status-pet-prop-label', title: t('settings.frameOffsetHint') },
-              t('settings.frameOffset') + offsetReadout()),
-            h('div', { className: 'status-pet-nudge' },
-              h('span', null),
-              h('button', { type: 'button', className: miniBtn, 'aria-label': t('settings.moveUp'), title: t('settings.moveUp'), onClick: () => nudgeOffset('dy', -1) }, '↑'),
-              h('span', null),
-              h('button', { type: 'button', className: miniBtn, 'aria-label': t('settings.moveLeft'), title: t('settings.moveLeft'), onClick: () => nudgeOffset('dx', -1) }, '←'),
-              h('button', { type: 'button', className: miniBtn, 'aria-label': t('settings.moveDown'), title: t('settings.moveDown'), onClick: () => nudgeOffset('dy', 1) }, '↓'),
-              h('button', { type: 'button', className: miniBtn, 'aria-label': t('settings.moveRight'), title: t('settings.moveRight'), onClick: () => nudgeOffset('dx', 1) }, '→'),
+            // notation.  It is a LABELLED ROW like the two above it — name on
+            // the left, the pad in the value column — so 当前帧's three rows
+            // line up instead of the pad floating under the numbers.
+            h('div', { className: 'status-pet-num-field status-pet-offset-row' },
+              h('span', { className: 'status-pet-prop-label', title: t('settings.frameOffsetHint') },
+                t('settings.frameOffset') + offsetReadout()),
+              h('div', { className: 'status-pet-nudge' },
+                h('span', null),
+                h('button', { type: 'button', className: miniBtn, 'aria-label': t('settings.moveUp'), title: t('settings.moveUp'), onClick: () => nudgeOffset('dy', -1) }, '↑'),
+                h('span', null),
+                h('button', { type: 'button', className: miniBtn, 'aria-label': t('settings.moveLeft'), title: t('settings.moveLeft'), onClick: () => nudgeOffset('dx', -1) }, '←'),
+                h('button', { type: 'button', className: miniBtn, 'aria-label': t('settings.moveDown'), title: t('settings.moveDown'), onClick: () => nudgeOffset('dy', 1) }, '↓'),
+                h('button', { type: 'button', className: miniBtn, 'aria-label': t('settings.moveRight'), title: t('settings.moveRight'), onClick: () => nudgeOffset('dx', 1) }, '→'),
+              ),
+              moved
+                ? h('button', { type: 'button', className: miniBtn, title: t('settings.offsetReset'), onClick: resetOffset }, t('settings.offsetReset'))
+                : null,
             ),
-            moved
-              ? h('button', { type: 'button', className: miniBtn, title: t('settings.offsetReset'), onClick: resetOffset }, t('settings.offsetReset'))
-              : null,
             // An imported accent (see clearProp): visible in the filmstrip and
             // the preview, invisible on the board — so it gets a row of its own.
             faceProp
@@ -1116,30 +1037,6 @@ export function PixelEditor(props: {
         : null,
     ),
 
-    // ── footer: undo/redo + the IO fold ──
-    h('div', { className: 'status-pet-footer' },
-      h('button', { type: 'button', className: miniBtn, 'aria-label': t('settings.undo'), onClick: undo }, '↶ ' + t('settings.undo')),
-      h('button', { type: 'button', className: miniBtn, 'aria-label': t('settings.redo'), onClick: redo }, '↷ ' + t('settings.redo')),
-      h('button', {
-        type: 'button', className: miniBtn, 'aria-expanded': showIo ? 'true' : 'false',
-        'aria-label': t('settings.io'),
-        onClick: () => setShowIo(!showIo),
-      }, t('settings.io')),
-    ),
-    showIo
-      ? h('div', null,
-          h('textarea', {
-            className: 'status-pet-io',
-            value: ioText,
-            'aria-label': t('settings.io'),
-            onChange: (e: { target: { value: string } }) => setIoText(e.target.value),
-          }),
-          h('div', { className: 'status-pet-colors' },
-            h('button', { type: 'button', className: miniBtn, onClick: doExport }, t('settings.export')),
-            h('button', { type: 'button', className: miniBtn, onClick: doImport }, t('settings.import')),
-          ))
-      : null,
     notice ? h('div', { className: 'status-pet-hint' }, notice) : null,
-    error ? h('div', { className: 'status-pet-error' }, error) : null,
   );
 }

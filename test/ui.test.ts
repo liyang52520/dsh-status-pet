@@ -87,12 +87,15 @@ const { SettingsPage } = await import('../src/ui/settings/page.ts');
 const { SkinPicker } = await import('../src/ui/settings/skin-picker.ts');
 const { PixelEditor } = await import('../src/ui/settings/pixel-editor.ts');
 const { StateAssignments } = await import('../src/ui/settings/assignments.ts');
+const { FrameCanvas } = await import('../src/ui/settings/frame-canvas.ts');
+const { ActionCombo } = await import('../src/ui/settings/action-combo.ts');
 const store = await import('../src/pet/skins/store.ts');
 const { ARTWORK } = await import('../src/artwork.gen.ts');
 store.installSkinArtwork(ARTWORK as never);
 const SKINS = ARTWORK;
 const { GRIDS, AVATAR_GRID, BODY_GRID, LIVE_ZOOM } = await import('../src/pet/grids.ts');
 const { TUNING } = await import('../src/pet/behavior.ts');
+const { CSS } = await import('../src/ui/styles.ts');
 
 // Every reset goes through the store's own flush: the store buffers a large
 // snapshot instead of writing one per painted pixel, so a test that clears
@@ -302,280 +305,304 @@ test('pet preview: interactive by default, bare canvas when not; state and skin 
   assert.ok(!bare.props.onClick, 'no petting');
 });
 
-test('settings page: skin picker + preview gallery; 编辑 exists on both skins', () => {
-  // A built-in HAS an 编辑 tab — its state assignments are editable — but only
-  // the 按状态 half of it.
+/** Expand a component element in place.  This stub renders nothing by itself,
+ *  so a component nested in a page's tree is an ELEMENT with props: calling it
+ *  is how a page test reads that child's output and drives its handlers, and it
+ *  starts at the page's own hook count, so the page's state is untouched (the
+ *  same move DockPopup's tests make). */
+const expand = (el: any) => el.type(el.props);
+/** Buttons (deep) whose text CONTAINS a fragment — the ops carry glyph prefixes. */
+const findAllByContainText = (el: any, frag: string, out: any[] = []): any[] => {
+  if (!el || typeof el !== 'object') return out;
+  if (el.props && textOf(el).includes(frag)) out.push(el);
+  for (const c of childList(el)) findAllByContainText(c, frag, out);
+  return out;
+};
+
+test('the Workshop: skin cards, ONE axis, and a LIGHT 状态 list beside the edit', () => {
   clearStorage();
   store.saveStored({ skin: store.DEFAULT_SKIN });
   store.refreshActiveSkin();
-  let render = mountPlain(SettingsPage, { t: tKey });
-  let tree = render();
-  assert.ok(tree.children.some((c: any) => c && c.type === 'style'), 'the inline style element renders');
-  assert.ok(!tree.children.some((c: any) => c && c.props && c.props.className === 'status-pet-preview'),
-    'the two big previews are gone');
-  assert.ok(tree.children.some((c: any) => c && c.type === SkinPicker), 'the skin picker renders');
-  // No standalone Recolour row: colours belong to the artwork, and the only
-  // editable palette is the studio's.
-  const colourInputs = (function walk(el: any, out: any[] = []): any[] {
-    if (!el || typeof el !== 'object') return out;
-    if (el.props && el.props.type === 'color') out.push(el);
-    for (const c of childList(el)) walk(c, out);
-    return out;
-  })(tree);
-  assert.equal(colourInputs.length, 0, 'the page carries no Recolour wells');
-  assert.equal(findAllByType(tree, PixelEditor).length, 0,
-    'the page opens on 预览, not on the studio');
-  const builtinTabs = findDeep(tree, 'status-pet-tab-list');
-  assert.ok(builtinTabs, 'a built-in still has a tab row');
-  assert.equal(childList(builtinTabs).length, 2, 'with both tabs');
-  assert.equal(findAllByText(builtinTabs, 'S:settings.tab.edit').length, 1, 'including 编辑');
-  // Every STATE cell can jump into its assignment, on a built-in too.
-  assert.equal(findAllDeep(tree, 'status-pet-gallery-edit').length, 11,
-    'all eleven state cells carry the corner ✎');
-  assert.equal(findDeep(tree, 'status-pet-builtin-note'), null, 'no built-in note any more');
-  const gallery = findDeep(tree, 'status-pet-gallery');
-  const cells = gallery.children.flat();
-  assert.equal(cells.length, 11, 'one gallery cell per state and reaction');
-  for (const cell of cells) {
-    const preview = cell.children.find((c: any) => c && c.type === PetPreview);
-    assert.ok(preview, 'each cell carries a PetPreview');
-    assert.equal(preview.props.interactive, false, 'decorative');
-    assert.equal(typeof preview.props.state, 'string', 'pinned to its state');
-    assert.equal(preview.props.crop, AVATAR_GRID, 'the dock avatar is the default crop');
-  }
-  assert.deepEqual(cells.map((c: any) => c.children.find((p: any) => p && p.type === PetPreview).props.state).sort(),
-    ['approval', 'done', 'error', 'idle', 'petted', 'question', 'sleep', 'stream', 'think', 'tool', 'woken'],
-    'every state and reaction pinned exactly once');
-  // …but an ACTION cell has no ✎ on a built-in: its pixels cannot be edited.
-  findAllByText(render(), 'S:settings.view.actions')[0].props.onClick();
-  assert.equal(findAllDeep(render(), 'status-pet-gallery-edit').length, 0,
-    'no corner ✎ on an action cell of a built-in');
-  findAllByText(render(), 'S:settings.view.states')[0].props.onClick();
-
-  // My Creation: the two tabs appear, and 编辑 opens on 按动作 — the studio.
-  store.saveStored({ skin: 'custom', custom: store.seedArtworkFrom(store.DEFAULT_SKIN) });
-  store.refreshActiveSkin();
-  render = mountPlain(SettingsPage, { t: tKey });
-  tree = render();
-  assert.equal(childList(findDeep(tree, 'status-pet-tab-list')).length, 2, 'My Creation gets both tabs');
-  clickTab(render(), 'S:settings.tab.edit');
-  tree = render();
-  assert.equal(findAllByType(tree, PixelEditor).length, 1, 'My Creation opens the studio');
-  assert.equal(findAllByType(tree, StateAssignments).length, 0,
-    'and 编辑 opens on 按动作, not on the assignment list');
-  assert.equal(findAllByText(render(), 'S:settings.builtinHint').length, 0, 'and no built-in note anywhere');
-  clearStorage();
-});
-
-test('settings page: two tabs (预览 / 编辑) with the 32 / 128 crop switch on the tab row', () => {
-  clearStorage();
-  store.saveStored({ skin: 'custom', custom: store.seedArtworkFrom(store.DEFAULT_SKIN) });
-  store.refreshActiveSkin();
   const render = mountPlain(SettingsPage, { t: tKey });
-  const tabsOf = (tree: any) => findDeep(tree, 'status-pet-tab-list');
-  const previews = () => findDeep(render(), 'status-pet-gallery').children.flat()
-    .map((cell: any) => cell.children.find((p: any) => p && p.type === PetPreview));
   const tree = render();
-  const tabs = tabsOf(tree);
-  assert.ok(tabs, 'the page has a tab row');
-  assert.equal(tabs.children.flat().length, 2, 'two tabs: 预览 and 编辑');
-  assert.equal(findAllByText(tabs, 'S:settings.tab.preview').length, 1, 'the preview tab');
-  assert.equal(findAllByText(tabs, 'S:settings.tab.edit').length, 1, 'the edit tab');
-  assert.ok(String(findAllByText(tabs, 'S:settings.tab.preview')[0].props.className).includes('active'),
-    '预览 is the tab the page opens on');
-  assert.ok(previews().length === 11, 'the preview tab holds the state gallery');
+  assert.ok(tree.children.some((c: any) => c && c.type === 'style'), 'the inline style element renders');
+  assert.ok(tree.children.some((c: any) => c && c.type === SkinPicker), 'the skin picker renders');
 
-  // The crop switch rides on the tab row, above both tabs.
-  const row = findDeep(tree, 'status-pet-tabs');
-  assert.deepEqual([...new Set(previews().map((p: any) => p.props.crop))], [AVATAR_GRID],
-    'the dock avatar is the crop shown by default');
-  const avatar = findAllByText(row, 'S:settings.grid.32')[0];
-  assert.ok(avatar, 'the tab row carries a 32 crop button');
-  assert.equal(avatar.props['aria-pressed'], 'true', 'active while 32 is shown');
-  const body = findAllByText(row, 'S:settings.grid.128')[0];
-  assert.ok(body, 'the tab row carries a 128 crop button');
-  assert.equal(body.props['aria-pressed'], 'false', 'inactive while 32 is shown');
-  body.props.onClick();
-  assert.deepEqual([...new Set(previews().map((p: any) => p.props.crop))], [BODY_GRID],
-    'switching shows the full body crop instead');
-  const active = findAllByText(findDeep(render(), 'status-pet-tabs'), 'S:settings.grid.128')[0];
-  assert.ok(String(active.props.className).includes('active'), 'the 128 button marks itself active');
-  assert.equal(active.props['aria-pressed'], 'true');
+  // ONE axis, and it is the whole navigation: no tab row, no 预览 / 编辑, and no
+  // crop switch up here.
+  const axis = findDeep(tree, 'status-pet-axis');
+  assert.ok(axis, 'the page carries one axis');
+  assert.deepEqual(childList(axis).map((b: any) => textOf(b)),
+    ['S:settings.view.states', 'S:settings.view.actions'], '状态 / 动作');
+  assert.equal(childList(axis)[0].props['aria-pressed'], 'true', '状态 opens first');
+  assert.equal(findAllDeep(tree, 'status-pet-tab-list').length, 0, 'no tab row');
+  assert.equal(findAllDeep(axis, 'status-pet-face-switch').length, 0, 'and no face switch on it');
 
-  // The label is the state name; what the state MEANS rides on the tooltip.
-  const cell = findDeep(render(), 'status-pet-gallery').children.flat()[0];
-  assert.equal(cell.props.title, 'S:settings.hint.' + cell.children.find((p: any) => p && p.type === PetPreview).props.state,
-    'each cell explains its state on hover');
+  // 状态 is TWO columns: the eleven states on the left, the edit on the right.
+  const cols = findDeep(tree, 'status-pet-columns');
+  assert.ok(cols, 'the 状态 view is a two-column layout');
+  assert.equal(childList(cols).length, 2, 'list + edit');
+  const list = findDeep(tree, 'status-pet-state-list');
+  const rows = () => findAllDeep(list, 'status-pet-state-row');
+  assert.equal(rows().length, 11, 'nine states and two reactions');
+  assert.deepEqual(findAllDeep(list, 'status-pet-list-caption').map((c: any) => textOf(c)),
+    ['S:settings.master.states', 'S:settings.master.reactions'], 'grouped, reactions apart');
+  // Eleven rows need no search: the only box on this screen belongs to the
+  // LIBRARY (which is 106 entries).
+  assert.equal(findAllDeep(list, 'status-pet-import-search').length, 0, 'the state list has no search');
+  // A row is ONE line: the name, and what the state plays.  No picture — eleven
+  // copies of the same face was the noise that made this list look dirty.
+  assert.equal(findAllByText(rows()[0], 'S:idle').length, 1, 'a row names its state');
+  assert.equal(childList(rows()[0]).length, 2, 'name + read-out, nothing else');
+  assert.equal(findAllByType(rows()[0], FrameCanvas).length, 0, 'no avatar per row');
+  assert.ok(textOf(rows()[0]).includes('S:settings.actionCount'), 'and how much it plays');
+  assert.equal(rows()[0].props['aria-pressed'], 'true', 'the open state marks itself');
+
+  // The right half is the assignment surface, already on the selected state.
+  const assign = findAllByType(tree, StateAssignments)[0];
+  assert.ok(assign, 'the assignment surface is the right half');
+  assert.equal(assign.props.state, 'idle');
+  assert.equal(assign.props.skin, 'whale-chan');
+  assert.equal(findAllByType(tree, PixelEditor).length, 0, 'and the 状态 view holds no studio');
+  const detail = () => expand(findAllByType(render(), StateAssignments)[0]);
+  // The 106 actions are 106 different animations: a list of names is a list you
+  // cannot read, so every row carries its own 1:1 thumbnail…
+  const libRows = () => findAllDeep(detail(), 'status-pet-library-row');
+  assert.ok(findAllByType(libRows()[0], FrameCanvas).length === 1, 'each row shows the action');
+  // …and pointing at one plays it LIVE in the header, at the popup's size.
+  assert.equal(findAllByType(findDeep(detail(), 'status-pet-edit-head'), PetPreview)[0].props.takeId,
+    undefined, 'the header shows the STATE until you reach for an action');
+  libRows()[0].props.onMouseEnter();
+  const head2 = findDeep(detail(), 'status-pet-edit-head');
+  const hovered = findAllByType(head2, PetPreview)[0];
+  assert.equal(hovered.props.takeId, store.skinLibrary('whale-chan')[0].id,
+    'hovering a row previews THAT action');
+  assert.equal(hovered.props.zoom, LIVE_ZOOM, 'at the popup zooms size');
+  assert.ok(textOf(head2).includes('S:settings.previewing'), 'and says which one it is playing');
+  libRows()[0].props.onMouseLeave();
+  assert.equal(findAllByType(findDeep(detail(), 'status-pet-edit-head'), PetPreview)[0].props.takeId,
+    undefined, 'leaving the row goes back to the state');
+
+  // Its header carries the state ONCE: name + meaning + a compact live picture.
+  const head = findDeep(detail(), 'status-pet-edit-head');
+  assert.ok(textOf(head).includes('S:idle'), 'the header names the state');
+  assert.ok(textOf(head).includes('S:settings.hint.idle'), 'and says what it means');
+  const pic = findAllByType(head, PetPreview)[0];
+  assert.equal(pic.props.state, 'idle', 'with the state live');
+  assert.equal(pic.props.grid, BODY_GRID, 'at the most detailed face there is');
+  assert.equal(pic.props.zoom, LIVE_ZOOM, 'displayed at 64px of art');
+  assert.equal(findDeep(detail(), 'status-pet-state-select'), null, 'and no second selector');
+
+  // Clicking a row is the whole selection.
+  rows().find((r: any) => textOf(r).startsWith('S:tool'))!.props.onClick();
+  assert.equal(findAllByType(render(), StateAssignments)[0].props.state, 'tool',
+    'the edit follows the row you picked');
   clearStorage();
 });
 
-test('settings page: the state gallery badges each state with what it plays', () => {
-  // The library model created a new failure mode — a state nobody ticked
-  // anything for — and this badge is the only place it is visible.
+test('the FACE switch lives on the studio canvas row — nowhere else', () => {
+  clearStorage();
+  store.saveStored({ skin: 'custom', custom: store.seedArtworkFrom(store.DEFAULT_SKIN) });
+  store.refreshActiveSkin();
+  const render = mountPlain(SettingsPage, { t: tKey });
+  const goto = (i: number) => childList(findDeep(render(), 'status-pet-axis'))[i].props.onClick();
+  // The studio is a child COMPONENT of the page (an element in this stub), so its
+  // rows are read by expanding it.
+  const fieldFor = (key: string) => findAllDeep(expand(findAllByType(render(), PixelEditor)[0]), 'status-pet-field')
+    .find((f: any) => textOf(childList(f)[0]) === key)!;
+
+  goto(1);
+  assert.equal(findAllByType(render(), PixelEditor)[0].props.grid, AVATAR_GRID,
+    '32 (the dock avatar) opens');
+  const canvasField = () => fieldFor('S:settings.region.canvas');
+  assert.equal(findAllDeep(canvasField(), 'status-pet-face-switch').length, 1,
+    'the canvas row carries the switch');
+  assert.equal(findAllDeep(findDeep(render(), 'status-pet-axis'), 'status-pet-face-switch').length, 0,
+    'and the axis does not');
+  // Pressing it moves the board: the page owns the value and hands it down.
+  findAllByText(canvasField(), 'S:settings.grid.128')[0].props.onClick();
+  assert.equal(findAllByType(render(), PixelEditor)[0].props.grid, BODY_GRID,
+    'the board follows the switch');
+  assert.equal(findAllByText(canvasField(), 'S:settings.grid.128')[0].props['aria-pressed'], 'true');
+  // The 状态 view has no switch at all: its picture is simply the best face.
+  goto(0);
+  assert.equal(findAllDeep(render(), 'status-pet-face-switch').length, 0,
+    'the 状态 view asks for no face');
+  clearStorage();
+});
+
+test('the 状态 list badges each state with what it plays', () => {
   clearStorage();
   store.saveStored({ skin: store.DEFAULT_SKIN });
   store.refreshActiveSkin();
   const render = mountPlain(SettingsPage, { t: tKey });
-  const badges = () => findDeep(render(), 'status-pet-gallery').children.flat()
-    .map((c: any) => textOf(c.children.find((x: any) => x && String(x.props.className || '').includes('status-pet-gallery-meta'))));
-  assert.equal(badges().length, 11, 'every state carries a badge');
-  assert.ok(badges().every((b: string) => b === 'S:settings.actionCount'),
-    'a built-in assigns every state, so every badge counts actions');
-  assert.equal(findAllByText(render(), 'S:settings.followIdle').length, 0,
-    'and none of them falls back to idle');
+  const metaOf = (tree: any, name: string) => {
+    const row = findAllDeep(tree, 'status-pet-state-row').find((r: any) => textOf(r).startsWith(name))!;
+    return textOf(findAllDeep(row, 'status-pet-state-meta')[0]);
+  };
+  assert.equal(metaOf(render(), 'S:idle'), 'S:settings.actionCount', 'a built-in assigns every state');
+  assert.equal(metaOf(render(), 'S:tool'), 'S:settings.actionCount');
 
-  // My Creation seeded from the built-in behaves the same; a hand-made artwork
-  // with only idle assigned shows the fallback on the other ten.
+  // A hand-made artwork with only idle assigned shows the fallback on the rest.
   store.saveStored({ skin: 'custom', custom: customWithPalette() });
   store.refreshActiveSkin();
   const custom = mountPlain(SettingsPage, { t: tKey });
-  const cells = () => findDeep(custom(), 'status-pet-gallery').children.flat();
-  const idleCell = cells().find((c: any) => c.children.some((x: any) => x && x.type === PetPreview
-    && x.props.state === 'idle'))!;
-  assert.ok(textOf(idleCell).includes('S:settings.actionCount'), 'idle plays one action');
-  const toolCell = cells().find((c: any) => c.children.some((x: any) => x && x.type === PetPreview
-    && x.props.state === 'tool'))!;
-  assert.ok(textOf(toolCell).includes('S:settings.followIdle'),
-    'a state nothing was ticked for says so, in the gallery');
+  assert.equal(metaOf(custom(), 'S:idle'), 'S:settings.actionCount', 'idle plays one action');
+  assert.equal(metaOf(custom(), 'S:tool'), 'S:settings.followIdle',
+    'a state nothing was ticked for says so');
   clearStorage();
 });
 
-test('settings page: 按动作 browses the library live, including unused actions', () => {
+test('the 动作 view: the studio at FULL width, with one searchable picker', () => {
   clearStorage();
-  store.saveStored({ skin: 'custom', custom: customWithPalette() });
+  const doc: any = customWithPalette();
+  doc.actions.push(actionOf2({ id: 'hop', name: 'hop act' }));
+  store.saveStored({ skin: 'custom', custom: doc });
   store.refreshActiveSkin();
   const render = mountPlain(SettingsPage, { t: tKey });
-  const view = (label: string) => findAllByText(render(), label)[0];
-  const cells = () => findDeep(render(), 'status-pet-gallery').children.flat();
-  const previews = () => cells().map((c: any) => c.children.find((p: any) => p && p.type === PetPreview));
+  childList(findDeep(render(), 'status-pet-axis'))[1].props.onClick();
 
-  assert.ok(view('S:settings.view.states'), 'the gallery opens 按状态');
-  assert.equal(view('S:settings.view.states').props['aria-pressed'], 'true');
-  assert.ok(previews().every((p: any) => typeof p.props.state === 'string' && p.props.takeId === undefined),
-    '按状态 pins states, not actions');
-  assert.ok(previews().every((p: any) => p.props.zoom === LIVE_ZOOM),
-    'and every gallery cell displays at LIVE_ZOOM, not 1:1');
+  const ed = () => findAllByType(render(), PixelEditor)[0];
+  assert.equal(ed().props.actionId, 'idle-1', 'the studio opens on the first action');
+  const studio = () => expand(ed());
+  // ONE control searches, previews and selects — a dropdown, not a <select> and
+  // not a list column beside the board.
+  assert.equal(findDeep(walk(render).studio, 'status-pet-select'), null, 'the native dropdown is gone');
+  const combo = () => walk(render).combo;
+  const input = () => comboInput(render);
+  assert.ok(input(), 'the picker is a combobox input');
+  assert.equal(input().props.role, 'combobox');
+  assert.equal(input().props.value, 'S:settings.actionN', 'closed, it reads out the action on the board');
+  assert.equal(input().props['aria-expanded'], 'false');
+  assert.equal(findDeep(combo(), 'status-pet-combo-pop'), null, 'and its list is closed');
 
-  findDeep(render(), 'status-pet-view-switch').children.flat()
-    .find((b: any) => textOf(b) === 'S:settings.view.actions').props.onClick();
-  const actionPreviews = previews();
-  assert.equal(actionPreviews.length, 1, 'the tiny fixture has one action');
-  assert.equal(actionPreviews[0].props.takeId, 'idle-1', 'each cell pins ONE library action');
-  assert.equal(actionPreviews[0].props.state, undefined, 'and is not a state cell');
-  assert.equal(actionPreviews[0].props.zoom, LIVE_ZOOM, 'and it displays at the popup\'s size');
-  assert.ok(textOf(cells()[0]).includes('S:settings.usedByN'), 'the cell says which states play it');
-  // Actions nothing plays are the point of this view.
-  const art = customWithPalette() as any;
-  art.actions.push(actionOf2({ id: 'hop' }));
-  store.saveStored({ skin: 'custom', custom: art });
-  store.refreshActiveSkin();
-  assert.ok(textOf(cells()[1]).includes('S:settings.unusedAction'),
-    'an action no state plays is listed, and says so');
-  assert.equal(findAllByText(render(), 'S:settings.unusedCount').length, 1,
-    'and the dead weight is counted above the gallery');
+  // Focus opens the library: every row is a thumbnail plus a read-out.
+  const rows = () => findAllDeep(comboOpen(render), 'status-pet-row');
+  assert.equal(rows().length, 2, 'every action is listed');
+  assert.ok(childList(rows()[0]).some((c: any) => c && c.type === FrameCanvas), 'with a preview');
+  assert.ok(textOf(rows()[1]).includes('S:settings.actionFrames'), 'and its read-out');
 
-  // The library is paged: the built-in's 106 actions do not all mount at once.
-  store.saveStored({ skin: 'custom', custom: store.seedArtworkFrom(store.DEFAULT_SKIN) });
-  store.refreshActiveSkin();
-  assert.equal(cells().length, 24, 'the first page is bounded');
-  findAllContaining(render(), 'S:settings.showMore')[0].props.onClick();
-  assert.equal(cells().length, 48, '显示更多 brings the next page');
+  // Typing filters; Enter takes the highlighted one; the board follows.
+  input().props.onChange({ target: { value: 'hop' } });
+  assert.equal(rows().length, 1, 'typing narrows the list');
+  assert.ok(textOf(rows()[0]).includes('hop act'));
+  input().props.onKeyDown({ key: 'Enter' });
+  assert.equal(findAllByType(render(), PixelEditor)[0].props.actionId, 'hop', 'Enter picks it');
+  assert.equal(findDeep(combo(), 'status-pet-combo-pop'), null, 'and the list closes');
   clearStorage();
 });
 
-test('settings page: 编辑 shows the studio on the crop the tab row picked', () => {
+test('the action picker’s footer is where the library is pruned', () => {
   clearStorage();
-  store.saveStored({ skin: 'custom', custom: store.seedArtworkFrom(store.DEFAULT_SKIN) });
+  const fixture: any = studioFixture();
+  fixture.actions.push(actionOf2({ id: 'sleep-a', name: 'sleep act' }));
+  store.saveStored({ skin: 'custom', custom: fixture });
   store.refreshActiveSkin();
   const render = mountPlain(SettingsPage, { t: tKey });
-  const studioGrid = () => {
-    const ed = findAllByType(render(), PixelEditor)[0];
-    return ed && ed.props.grid;
-  };
-  clickTab(render(), 'S:settings.tab.edit');
-  assert.equal(studioGrid(), AVATAR_GRID, 'the studio starts on the crop the tab row shows');
-  assert.equal(findDeep(render(), 'status-pet-gallery'), null,
-    'the gallery is not rendered while 编辑 is active');
-  // The switch is shared: it moves the studio too.
-  const row = findDeep(render(), 'status-pet-tabs');
-  findAllByText(row, 'S:settings.grid.128')[0].props.onClick();
-  assert.equal(studioGrid(), BODY_GRID, 'the studio follows the tab-row crop switch');
+  childList(findDeep(render(), 'status-pet-axis'))[1].props.onClick();
+  const studio = () => walk(render).studio;
+  const combo = () => walk(render).combo;
+  const input = () => comboInput(render);
+  const ids = () => store.loadStored().custom!.actions.map((a) => a.id);
+  const pop = () => comboOpen(render);
+  assert.ok(pop(), 'focusing opens the list');
+  findAllContaining(pop(), 'S:settings.manageActions')[0].props.onClick();
+  assert.equal(findAllDeep(combo(), 'status-pet-row-check').length, 3,
+    '批量删除 turns the same rows into checkboxes');
+  // The search still scopes the selection.
+  input().props.onChange({ target: { value: 'sleep' } });
+  assert.equal(findAllDeep(combo(), 'status-pet-row-check').length, 1, 'the filter scopes the list');
+  findAllContaining(pop(), 'S:settings.selectAll')[0].props.onClick();
+  assert.ok(hintSays(pop(), 'S:settings.selectedCount'), 'the tick count is a read-out');
+  findAllContaining(pop(), 'S:settings.deleteSelected')[0].props.onClick();
+  assert.ok(findDeep(combo(), 'status-pet-confirm'), 'a removal asks first');
+  assert.equal(ids().length, 3, 'and writes nothing until 删除');
+  findAllContaining(combo(), 'S:settings.confirmDelete')[0].props.onClick();
+  assert.deepEqual(ids(), ['idle-1', 'hop'], 'one write removed it');
+  assert.deepEqual(store.validateArtwork(store.loadStored().custom!), [], 'the document stays valid');
+  assert.ok(hintSays(studio(), 'S:settings.actionsRemoved'), 'and the studio says what happened');
+
+  // A built-in cannot prune its library, so the entry is not there at all.
+  clearStorage();
+  store.saveStored({ skin: 'whale-chan' });
+  store.refreshActiveSkin();
+  const builtin = mountPlain(SettingsPage, { t: tKey });
+  childList(findDeep(builtin(), 'status-pet-axis'))[1].props.onClick();
+  assert.ok(comboOpen(builtin), 'the frozen view carries the same picker');
+  assert.equal(findAllContaining(builtin(), 'S:settings.manageActions').length, 0,
+    'a built-in cannot prune its library');
   clearStorage();
 });
 
-test('settings page: a built-in opens 编辑 · 按状态 — assignments only, no studio', () => {
+test('a built-in: the SAME two views, READ-ONLY — nothing writes and nothing forks', () => {
   clearStorage();
   store.saveStored({ skin: 'whale-chan' });
   store.refreshActiveSkin();
   const render = mountPlain(SettingsPage, { t: tKey });
-  clickTab(render(), 'S:settings.tab.edit');
-  const tree = render();
-  const assign = findAllByType(tree, StateAssignments)[0];
+  const assign = findAllByType(render(), StateAssignments)[0];
   assert.ok(assign, 'the assignment surface renders for a built-in');
   assert.equal(assign.props.skin, 'whale-chan', 'pinned to the built-in, not to 我的创作');
   assert.equal(assign.props.key, 'assign:whale-chan',
-    'and keyed by skin, so swapping skins while 编辑 is open re-reads');
-  assert.equal(assign.props.grid, AVATAR_GRID, 'on the crop the tab row shows');
-  assert.equal(findAllByType(tree, PixelEditor).length, 0, 'no studio — the pixels are frozen');
-  const switcher = findAllDeep(tree, 'status-pet-view-switch')[0];
-  assert.equal(childList(switcher).length, 1, 'the mode switch holds 按状态 alone');
-  assert.ok(textOf(childList(switcher)[0]).includes('S:settings.view.states'));
-  assert.equal(findAllByText(tree, 'S:settings.builtinStatesOnly').length, 1,
-    'and a quiet line says where pixels CAN be changed');
+    'and keyed by skin, so swapping skins re-reads instead of writing across');
+
+  // 动作 is the SAME studio as 我的创作 — same picker, same canvas, same rows —
+  // with every WRITE gated off.  A separate read-only layout is how the two
+  // views drifted apart, so the gate is on the controls.
+  childList(findDeep(render(), 'status-pet-axis'))[1].props.onClick();
+  const ed = findAllByType(render(), PixelEditor)[0];
+  assert.ok(ed, 'a built-in gets the studio too');
+  assert.equal(ed.props.grid, AVATAR_GRID, 'on the same default face');
+  const studio = () => expand(findAllByType(render(), PixelEditor)[0]);
+  assert.ok(findDeep(studio(), 'status-pet-grid'), 'with a real board');
+  assert.ok(findDeep(expand(picker(studio())), 'status-pet-combo-input'), 'and the same picker');
+  // …but NOTHING here writes: no action ops, no frame CRUD, no brush box, no
+  // frame numbers.
+  assert.equal(findAllByLabel(studio(), 'S:settings.newAction').length, 0, 'no 新建动作');
+  assert.equal(findAllByContainText(studio(), 'S:settings.deleteAction').length, 0, 'no 删除动作');
+  assert.equal(findAllDeep(studio(), 'status-pet-library-check').length, 0, 'and nothing to prune');
+  assert.equal(findAllDeep(studio(), 'status-pet-swatch').length, 0, 'no paint box to paint with');
+  assert.equal(findAllByContainText(studio(), 'S:settings.addFrame').length, 0, 'no 复制一帧');
+  assert.equal(findAllByContainText(studio(), 'S:settings.delFrame').length, 0, 'no 删除帧');
+  assert.ok(findDeep(studio(), 'status-pet-board-readonly'), 'and the board says it is a picture');
+
+  // A click on the board is LOOKING, not drawing: it writes nothing, switches
+  // no skin and — the whole point — copies NOTHING.  (It used to fork 15 MB into
+  // 我的创作 on this click.)
+  findDeep(studio(), 'status-pet-grid').children.flat()[1].children.flat()[3].props.onPointerDown();
+  assert.equal(store.loadStored().skin, 'whale-chan', 'a stray click writes nothing');
+  assert.equal(store.loadStored().custom, undefined, 'and copies nothing');
+  // There is no fork button anywhere on the page, and no line announcing one.
+  assert.equal(findAllByContainText(render(), 'S:settings.forkToCustom').length, 0,
+    'no copy button — the door is the skin picker');
+  assert.equal(findAllByContainText(render(), 'S:settings.seededNotice').length, 0, 'no fork notice');
+  assert.equal(hintSays(render(), 'S:settings.builtinActionNote'), false, 'and no note about one');
+  // The way to draw is to PICK 我的创作, which seeds itself from the active skin.
+  assert.equal(findAllByType(render(), SkinPicker).length, 1, 'the skin cards are the one door');
   clearStorage();
 });
 
-// ── The seam between the tabs: the corner ✎ ──
-// Each 预览 cell carries a small floating edit button, and the CELL ITSELF is
-// inert: looking at the pet must never edit it.  The button opens the matching
-// 编辑 mode already pointing at that cell.
-
-const cornerEdits = (tree: any) => findAllDeep(tree, 'status-pet-gallery-edit');
-
-test('预览 cells carry a corner ✎ that opens the matching 编辑 mode on that very thing', () => {
+test('no corner ✎ and no library column: a state is ticked, an action is picked', () => {
   clearStorage();
   store.saveStored({ skin: 'custom', custom: studioFixture() });
   store.refreshActiveSkin();
   const render = mountPlain(SettingsPage, { t: tKey });
-
-  // 按状态: one ✎ per state cell, and the cell body is not clickable itself.
-  const stateCells = findDeep(render(), 'status-pet-gallery').children.flat();
-  assert.equal(cornerEdits(render()).length, 11, 'one corner ✎ per state cell');
-  assert.ok(stateCells.every((c: any) => !c.props.onClick), 'looking at a state never edits it');
-  const stateEdit = cornerEdits(render()).find((b: any) =>
-    String(b.props['aria-label']).startsWith('S:tool —'));
-  assert.ok(stateEdit, 'each button names its own state');
-  stateEdit.props.onClick();
-  let tree = render();
-  const assign = findAllByType(tree, StateAssignments)[0];
-  assert.ok(assign, 'it opens 编辑 · 按状态');
-  assert.equal(assign.props.state, 'tool', 'already pointing at the clicked state');
-  assert.equal(assign.props.grid, AVATAR_GRID, 'on the crop the tab row shows');
-
-  // 按动作: the same seam, the other mode and the other dropdown value.
-  store.refreshActiveSkin();
-  const render2 = mountPlain(SettingsPage, { t: tKey });
-  findAllByText(render2(), 'S:settings.view.actions')[0].props.onClick();
-  const hopEdit = cornerEdits(render2()).find((b: any) =>
-    String(b.props['aria-label']).startsWith('hop act —'));
-  assert.ok(hopEdit, 'the action cell carries one too');
-  assert.ok(findAllByText(render2(), 'S:settings.unusedAction').length > 0,
-    'including for an action no state plays');
-  hopEdit.props.onClick();
-  const ed = findAllByType(render2(), PixelEditor)[0];
-  assert.ok(ed, 'it opens 编辑 · 按动作');
-  assert.equal(ed.props.actionId, 'hop', 'with that action on the board');
-  assert.equal(findAllByType(render2(), StateAssignments).length, 0,
-    'and not the assignment list');
+  for (const dead of ['status-pet-gallery-edit', 'status-pet-library-edit', 'status-pet-master',
+                      'status-pet-master-title', 'status-pet-detail-head']) {
+    assert.equal(findAllDeep(render(), dead).length, 0, dead + ' is gone');
+  }
+  // The state's own door to the board is gone with them: 动作 has ONE way in —
+  // its picker.
+  const detail = expand(findAllByType(render(), StateAssignments)[0]);
+  assert.equal(findAllDeep(detail, 'status-pet-library-edit').length, 0, 'no per-row door');
+  assert.equal(findAllDeep(detail, 'status-pet-library-row').length, 2, 'the rows are tick targets');
   clearStorage();
 });
 
-test('编辑 · 按状态 is the assignment surface: a dropdown, its checkboxes and its ops', () => {
+test('the 状态 detail is the assignment surface: checkboxes, their groups and their ops', () => {
   clearStorage();
   store.saveStored({ skin: 'custom', custom: studioFixture() });
   store.refreshActiveSkin();
-  const props: any = { t: tKey, skin: 'custom', grid: AVATAR_GRID, state: 'idle',
-    onStateChange: (s: string) => { props.state = s; } };
+  const props: any = { t: tKey, skin: 'custom', grid: AVATAR_GRID, state: 'idle' };
   const render = mountPlain(StateAssignments, props);
   const rows = () => findAllDeep(render(), 'status-pet-library-row');
   const checks = () => rows().map((r: any) => inputsIn(r)[0]);
@@ -586,9 +613,10 @@ test('编辑 · 按状态 is the assignment surface: a dropdown, its checkboxes 
 
   // Two actions in the library; idle plays one of them, and tool plays neither.
   assert.equal(rows().length, 2, 'the list holds every action');
-  assert.equal(optionLabels(render()).length, 11, 'every state is in the dropdown');
-  const toolOption = optionLabels(render()).find((l: string) => l.startsWith('S:tool'));
-  assert.ok(toolOption!.includes('S:settings.followIdle'), 'untouched states show the follow badge');
+  // The state is the master list's selection, so this surface carries NO
+  // selector of its own — a dropdown here named the same state a third time.
+  assert.equal(findDeep(render(), 'status-pet-state-select'), null,
+    'the detail has no state dropdown');
   assert.equal(inputsIn(rowFor('idle act'))[0].props.checked, true, 'idle starts ticked');
   // The tick is at the TOP, under a header, with the rest below it — the page
   // answers "what does this state do?" before it lists the material.
@@ -596,7 +624,7 @@ test('编辑 · 按状态 is the assignment surface: a dropdown, its checkboxes 
     'the ticked action comes first');
   assert.deepEqual(groups(), ['S:settings.libraryTickedGroup', 'S:settings.libraryRestGroup'],
     'and the two halves are captioned');
-  stateSelect(render()).props.onChange({ target: { value: 'tool' } });
+  props.state = 'tool';
   assert.deepEqual(checks().map((c: any) => c.props.checked), [false, false],
     'the list shows this state\'s selection, not the library');
   assert.deepEqual(groups(), [], 'nothing ticked → one plain list, no headers');
@@ -606,8 +634,6 @@ test('编辑 · 按状态 is the assignment surface: a dropdown, its checkboxes 
   inputsIn(rowFor('hop act'))[0].props.onChange({ target: { checked: true } });
   let saved = store.loadStored().custom!;
   assert.deepEqual(saved.states.tool, ['hop'], 'ticking adds the reference');
-  assert.ok(optionLabels(render()).find((l: string) => l.startsWith('S:tool'))!
-    .includes('S:settings.actionCount'), 'and the dropdown counts it');
   assert.equal(textOf(rows()[0]).startsWith('hop act'), true, 'the ticked row is first');
   assert.equal(inputsIn(rowFor('hop act'))[0].props.checked, true, 'the row is ticked');
   assert.ok(textOf(rowFor('hop act')).includes('S:settings.usedByN'), 'and the row says who plays it');
@@ -615,10 +641,15 @@ test('编辑 · 按状态 is the assignment surface: a dropdown, its checkboxes 
   // 「全选」 takes the whole library; 「清空」 is exactly the idle fallback — and
   // those two ARE the ops row: a state IS its selection, so the old "copy this
   // state / paste" pair (which read as duplicating a state) is gone.
-  const ops = () => childList(findDeep(render(), 'status-pet-state-ops'))
-    .filter(Boolean).map((b: any) => textOf(b));
+  // The ops ride the search line, with the tick count: one row of controls, and
+  // never a wrapped second line.
+  const ops = () => childList(findDeep(render(), 'status-pet-bulk-ops'))
+    .filter(Boolean).map((b: any) => textOf(b))
+    .filter((x: string) => String(x).startsWith('S:settings.selectAll') || String(x).startsWith('S:settings.clearSelection'));
+  const capWarning = () => findAllDeep(render(), 'status-pet-full').length;
   assert.deepEqual(ops(), ['S:settings.selectAll', 'S:settings.clearSelection'],
     'a non-empty selection offers 全选 and 清空 — no copy, no paste');
+  assert.equal(capWarning(), 0, 'and no tick count: the checkboxes already say it');
   findAllContaining(render(), 'S:settings.selectAll')[0].props.onClick();
   saved = store.loadStored().custom!;
   assert.deepEqual(saved.states.tool, ['idle-1', 'hop'], 'all means all');
@@ -736,6 +767,43 @@ const tKey = (k: string) => 'S:' + k;
 // (32px avatar / 128px body — the Workshop shows these 1:1) and the LIVE DISPLAY
 // size on the real page (16px / 64px — an exact 1:2 of those same rendered
 // pixels).  The live zoom never re-renders the sprite smaller.
+// ── the stylesheet is a shipped artifact too ──
+// Two of this page's rewrites silently LOST rules (a line-based cleanup removed
+// a heading and left the body, and a later one dropped whole rules): the stage
+// stopped being a grid, so its `@container` override had nothing to override and
+// the preview could never sit beside the board.  Structure alone cannot catch
+// that, so the CSS itself is asserted.
+
+test('stylesheet: every rule is well formed and the stage can actually go two-column', () => {
+  const css = CSS;
+  assert.equal((css.match(/\{/g) || []).length, (css.match(/\}/g) || []).length,
+    'every block is closed');
+  // A top-level fragment must be a selector (or an at-rule), never a stray
+  // declaration list left behind by a removed header.
+  for (const part of css.split('}')) {
+    const head = part.split('{')[0].trim();
+    if (!head || part.indexOf('{') === -1) continue;
+    if (/^[a-z-]+\s*:/.test(head)) assert.fail('orphaned declarations: ' + head.slice(0, 40));
+  }
+  // The board and its preview are a GRID, and the two-column switch is a
+  // CONTAINER query (the pane, not the viewport).
+  assert.match(css, /\.status-pet-stage\{[^}]*display:grid/,
+    'the stage owns its layout');
+  assert.match(css, /@container \(min-width:380px\)\{\.status-pet-stage\{grid-template-columns:[^}]*auto/,
+    'and goes two-column from 380px of pane up — the preview is small enough that\n    the pair makes ONE row at every real pane width');
+  // The preview is a picture, not a control: no caption, no link, no numbers.
+  assert.equal(css.includes('.status-pet-stage-caption'), false, 'the caption rule is gone');
+  // 106 library rows are a SCROLL REGION, not an endless column: without the cap
+  // the assignment card grew several screens tall (the reported bug) and the rows
+  // below the fold were unreachable without scrolling the whole dialog.
+  assert.match(css, /\.status-pet-library\{[^}]*max-height[^}]*overflow:auto/,
+    'the action library scrolls instead of stretching the card');
+  // The classes the components rely on for placement.
+  for (const cls of ['.status-pet-field-wide{', '.status-pet-library-group{', '.status-pet-stage-cell{']) {
+    assert.ok(css.includes(cls), cls + ' has a rule');
+  }
+});
+
 test('the live pet is 16px of avatar and 64px of body; the Workshop stays 1:1', () => {
   const dockSpec = GRIDS[AVATAR_GRID];
   const bodySpec = GRIDS[BODY_GRID];
@@ -823,12 +891,39 @@ function findAllContaining(el: any, frag: string, out: any[] = []): any[] {
 
 // Which state is being ASSIGNED TO (编辑 · 按状态), and which action is on the
 // board (编辑 · 按动作): two dropdowns, two modes, never the same component.
+// The 状态 detail has NO selector of its own any more (the master list owns the
+// selection); this helper is what asserts its absence.
 const stateSelect = (tree: any) => findDeep(tree, 'status-pet-state-select');
-const stateOptions = (tree: any) => childList(stateSelect(tree));
-const optionLabels = (tree: any) => stateOptions(tree).map((o: any) => textOf(o));
-const actionSelect = (tree: any) => findDeep(tree, 'status-pet-action-select');
-const actionOptions = (tree: any) => childList(actionSelect(tree));
-const actionOptionLabels = (tree: any) => actionOptions(tree).map((o: any) => textOf(o));
+// The studio's action picker is ActionCombo: `picker()` is its element (its
+// props carry the whole library and the selected id) and `pickBy` is what
+// clicking a row does.  The open list is covered by the page-level test, in a
+// real page.
+const picker = (tree: any) => findAllByType(tree, ActionCombo)[0] || null;
+const pickValue = (tree: any) => { const p = picker(tree); return p ? p.props.value : null; };
+const pickBy = (tree: any, id: string) => { const p = picker(tree); p.props.onSelect(id); };
+/** Walk a render function down to the studio and its picker, expanding each
+ *  child at the SAME hook base every call so their own state persists (a page
+ *  test's `owner` is the page render; a studio test's is the studio render). */
+const walk = (owner: () => any) => {
+  const tree = owner();
+  const px = findAllByType(tree, PixelEditor)[0];
+  const studio = px ? expand(px) : tree;
+  const cb = findAllByType(studio, ActionCombo)[0];
+  return { studio, combo: cb ? expand(cb) : null };
+};
+const comboInput = (owner: () => any) => {
+  const c = walk(owner).combo;
+  return c ? findDeep(c, 'status-pet-combo-input') : null;
+};
+/** Focus the picker and return its popup — the list exists on the render AFTER
+ *  focus, so the chain is walked again. */
+const comboOpen = (owner: () => any) => {
+  const input = comboInput(owner);
+  if (!input) return null;
+  input.props.onFocus();
+  const c = walk(owner).combo;
+  return c ? findAllDeep(c, 'status-pet-combo-pop')[0] || null : null;
+};
 
 // Every element (deep) of this component type.
 function findAllByType(el: any, type: any, out: any[] = []): any[] {
@@ -1003,7 +1098,7 @@ test('pixel studio: the eraser, the eyedropper, and colours past the old 15-slot
   clearStorage();
 });
 
-test('pixel studio: a free stroke saves as custom on the full grid', () => {
+test('pixel studio: a built-in only LOOKS — no stroke, no fork, no copy', () => {
   clearStorage();
   store.saveStored({ skin: store.DEFAULT_SKIN });
   store.refreshActiveSkin();
@@ -1011,27 +1106,45 @@ test('pixel studio: a free stroke saves as custom on the full grid', () => {
   const findGrid = (v: El) => findDeep(v, 'status-pet-grid');
   const grid = findGrid(render());
   const rows = grid.children.flat();
-  assert.equal(rows.length, AVATAR_GRID, 'the board edits the FULL grid — the expression rows are unlocked');
+  assert.equal(rows.length, AVATAR_GRID, 'the board draws the FULL grid — the expression rows are visible');
   assert.equal(rows[0].children.flat().length, AVATAR_GRID);
-  // Paint the classic expression row (row 4, previously locked): works now.
+  // A bare click on a built-in's board is LOOKING, not drawing: nothing is
+  // written, nothing is copied, and the active skin does not move.  (This click
+  // used to copy 15 MB into 我的创作 and switch the skin underneath the user.)
   rows[4].children.flat()[4].props.onPointerDown();
-  const painted = store.loadStored();
-  assert.equal(painted.skin, 'custom', 'painting saves as the custom skin');
-  const drawn = idleRows(painted.custom!);
-  // Forking to custom clones the built-in pixels, so "free drawing" means the
-  // stroke changed exactly ONE cell of that row.
+  rows[4].children.flat()[4].props.onPointerEnter({ buttons: 1 });
+  assert.equal(store.loadStored().skin, store.DEFAULT_SKIN, 'a stray click does not switch skins');
+  assert.equal(store.loadStored().custom, undefined, 'and copies nothing');
+
+  // There is no fork button and no announcement of one: the studio is a viewer,
+  // and the door to drawing is the skin picker's 我的创作 card.
+  assert.equal(findAllByContainText(render(), 'S:settings.forkToCustom').length, 0, 'no copy button');
+  assert.equal(findAllByContainText(render(), 'S:settings.seededNotice').length, 0, 'no copy notice');
+  // The controls that would write are absent, not merely inert.
+  assert.equal(findAllDeep(render(), 'status-pet-swatch').length, 0, 'no brushes');
+  assert.equal(findAllByContainText(render(), 'S:settings.addFrame').length, 0, 'no frame ops');
+  assert.ok(findDeep(render(), 'status-pet-board-readonly'), 'the board is a picture');
+
+  // Painting still works the moment the document is the user's: the SAME board
+  // on a custom skin paints freely, one cell at a time.
+  clearStorage();
+  store.saveStored({ skin: 'custom', custom: store.seedArtworkFrom(store.DEFAULT_SKIN) });
+  store.refreshActiveSkin();
+  const mine = mountPlain(PixelEditor, { t: tKey });
+  const drawn = () => idleRows(store.loadStored().custom!);
   const seeded = idleRows(store.seedArtworkFrom(store.DEFAULT_SKIN));
-  assert.equal(store.pixelAt(drawn[4], 4), '01', 'the stroke landed');
+  findGrid(mine()).children.flat()[4].children.flat()[4].props.onPointerDown();
+  assert.equal(store.pixelAt(drawn()[4], 4), '01', 'the stroke landed');
   for (let x = 0; x < AVATAR_GRID; x++) {
     if (x === 4) continue;
-    assert.equal(store.pixelAt(drawn[4], x), store.pixelAt(seeded[4], x),
+    assert.equal(store.pixelAt(drawn()[4], x), store.pixelAt(seeded[4], x),
       `column ${x} is untouched — the studio does not mirror strokes`);
   }
-  const before = drawn[7];
-  findGrid(render()).children.flat()[7].children.flat()[5].props.onPointerEnter({ buttons: 0 });
+  const before = drawn()[7];
+  findGrid(mine()).children.flat()[7].children.flat()[5].props.onPointerEnter({ buttons: 0 });
   assert.equal(idleRows(store.loadStored().custom!)[7], before,
     'hover without a button paints nothing');
-  findGrid(render()).children.flat()[7].children.flat()[5].props.onPointerEnter({ buttons: 1 });
+  findGrid(mine()).children.flat()[7].children.flat()[5].props.onPointerEnter({ buttons: 1 });
   assert.notEqual(idleRows(store.loadStored().custom!)[7], before,
     'dragging with a button paints');
   clearStorage();
@@ -1057,7 +1170,7 @@ test('pixel studio: an imported accent can be seen and removed, not silently stu
 
 test('pixel studio: two strokes in one frame both land (no stale-closure loss)', () => {
   clearStorage();
-  store.saveStored({ skin: store.DEFAULT_SKIN });
+  store.saveStored({ skin: 'custom', custom: studioFixture() });
   store.refreshActiveSkin();
   const render = mountPlain(PixelEditor, { t: tKey });
   const grid = findDeep(render(), 'status-pet-grid');
@@ -1069,29 +1182,24 @@ test('pixel studio: two strokes in one frame both land (no stale-closure loss)',
   clearStorage();
 });
 
-test('pixel studio: follows the active skin; first stroke forks to custom with the full bake', () => {
+test('pixel studio: follows the active skin, and never copies it by itself', () => {
   clearStorage();
   store.saveStored({ skin: 'whale-chan' });
   store.refreshActiveSkin();
   const render = mountPlain(PixelEditor, { t: tKey });
   // One dropdown names every ACTION — the whole baked library, with its length
   // and who plays it.  It never mentions a state: that is 按状态's dropdown.
-  assert.equal(actionOptions(render()).length, 106, 'every library action is in the dropdown');
-  assert.ok(actionOptionLabels(render()).every((l: string) => l.includes('S:settings.actionFrames')),
-    'each option says how long the loop is');
-  assert.ok(actionOptionLabels(render()).every((l: string) =>
-    l.includes('S:settings.usedByN') || l.includes('S:settings.unusedAction')),
-    'and how many states play it');
-  assert.equal(actionSelect(render()).props.value, store.skinLibrary('whale-chan')[0].id,
+  assert.equal(picker(render()).props.library.length, 106, 'the picker carries every library action');
+  assert.ok(picker(render()).props.library.every((a: any) => a.frames > 0 && a.bodyFrames > 0),
+    'with its frames and its body face');
+  assert.equal(pickValue(render()), store.skinLibrary('whale-chan')[0].id,
     'the board starts on the library\'s first action');
-  // Stroke: forks to custom with all states carried over.
+  // Looking at a built-in — even clicking its board — copies nothing: the whole
+  // 15 MB bake lands in 我的创作 only when the user picks that skin (see the
+  // skin-picker test), never as a side effect of browsing.
   findDeep(render(), 'status-pet-grid').children.flat()[1].children.flat()[3].props.onPointerDown();
-  const saved = store.loadStored();
-  assert.equal(saved.skin, 'custom', 'the stroke forks to custom');
-  assert.equal(Object.keys(saved.custom!.states).length, 11, 'the fork carries every state');
-  assert.equal(saved.custom!.actions.length, 106,
-    'and the whole action library, once — the states only reference it');
-  assert.equal(store.pixelAt(idleRows(saved.custom!)[1], 3), '01', 'the stroke landed');
+  assert.equal(store.loadStored().skin, 'whale-chan', 'still the built-in');
+  assert.equal(store.loadStored().custom, undefined, 'and nothing was copied');
   clearStorage();
 });
 
@@ -1104,11 +1212,11 @@ test('pixel studio: the 动作 dropdown picks what the board edits, per action',
   const cell = (y: number, x: number) => grid().children.flat()[y].children.flat()[x];
 
   // Both actions are offered, by name, and the second one is selectable.
-  assert.deepEqual(actionOptionLabels(render()).map((l: string) => l.split(' · ')[0]),
-    ['idle act', 'hop act'], 'every action names itself in the dropdown');
-  assert.equal(actionSelect(render()).props.value, 'idle-1', 'the board starts on the first action');
-  actionSelect(render()).props.onChange({ target: { value: 'hop' } });
-  assert.equal(actionSelect(render()).props.value, 'hop', 'choosing an action moves the board to it');
+  assert.deepEqual(picker(render()).props.library.map((a: any) => a.name),
+    ['idle act', 'hop act'], 'the picker carries every action, by name');
+  assert.equal(pickValue(render()), 'idle-1', 'the board starts on the first action');
+  pickBy(render(), 'hop');
+  assert.equal(pickValue(render()), 'hop', 'choosing an action moves the board to it');
 
   // And the stroke lands on THAT action — idle's art is untouched.
   cell(2, 2).props.onPointerDown();
@@ -1120,18 +1228,63 @@ test('pixel studio: the 动作 dropdown picks what the board edits, per action',
   clearStorage();
 });
 
-test('pixel studio: a jump from 预览 · 按动作 opens the board on that action', () => {
-  // The prop is how the page hands a corner ✎ over; the studio must honour it
-  // on mount (the ordinary way in has no target and takes the first action).
+test('pixel studio: the board opens on the action the page handed over', () => {
+  // `actionId` is how the page's 动作 master list hands an action over; the
+  // studio honours it on mount, and with no target it resumes the session (the
+  // document has not changed, so neither has where you were).
   clearStorage();
   store.saveStored({ skin: 'custom', custom: studioFixture() });
   store.refreshActiveSkin();
   const plain = mountPlain(PixelEditor, { t: tKey });
-  assert.equal(actionSelect(plain()).props.value, 'idle-1', 'no target: the first action');
+  assert.equal(pickValue(plain()), 'idle-1', 'no target: the first action');
   const jumped = mountPlain(PixelEditor, { t: tKey, actionId: 'hop' });
-  assert.equal(actionSelect(jumped()).props.value, 'hop', 'a target: that action');
+  assert.equal(pickValue(jumped()), 'hop', 'a target: that action');
+  // A STALE target (an action that is gone) must never blank the board.  It
+  // lands on the last real action of this document, which is a better answer
+  // than the library's first: it does not throw away your place.
   const stale = mountPlain(PixelEditor, { t: tKey, actionId: 'no-such-action' });
-  assert.equal(actionSelect(stale()).props.value, 'idle-1', 'an unknown target falls back, never blanks');
+  assert.equal(pickValue(stale()), 'hop', 'a stale target keeps the last real action');
+  // A different document has no session at all, so there the fallback IS the
+  // first action.
+  clearStorage();
+  store.saveStored({ skin: 'custom', custom: studioFixture() });
+  store.refreshActiveSkin();
+  const fresh = mountPlain(PixelEditor, { t: tKey, actionId: 'no-such-action' });
+  assert.equal(pickValue(fresh()), 'idle-1', 'a fresh document starts on its first action');
+  clearStorage();
+});
+
+test('pixel studio: the session survives a remount — the action and frame are kept', () => {
+  // The page swaps the studio for the 状态 view, and that must not send you back
+  // to the first frame of the library.  The session lives in a module keyed by
+  // the ARTWORK IDENTITY, so a remount of the same document resumes exactly
+  // where you were.
+  clearStorage();
+  store.saveStored({ skin: 'custom', custom: customWithPalette() });
+  store.refreshActiveSkin();
+  // The filmstrip's thumbs are the studio's own children (a nested component is
+  // an unreduced element here), so their `active` prop IS the selection.
+  const activeThumbs = (tree: any) =>
+    childList(findDeep(tree, 'status-pet-filmstrip'))
+      .filter((el: any) => el && el.props && 'active' in el.props)
+      .map((el: any) => el.props.active);
+
+  const first = mountPlain(PixelEditor, { t: tKey });
+  findAllByLabel(first(), 'S:settings.addFrame')[0].props.onClick();
+  assert.deepEqual(activeThumbs(first()), [false, true], 'the copy is the frame on the board');
+
+  // …the page switches to 状态 and back: a NEW mount of the same document.
+  const second = mountPlain(PixelEditor, { t: tKey });
+  assert.deepEqual(activeThumbs(second()), [false, true],
+    'the frame you were on is still the selected one');
+  // A fresh document opens at the start: the old position describes artwork
+  // nobody has.
+  clearStorage();
+  store.saveStored({ skin: 'custom', custom: customWithPalette() });
+  store.refreshActiveSkin();
+  const third = mountPlain(PixelEditor, { t: tKey });
+  assert.deepEqual(activeThumbs(third()), [true],
+    'a fresh document opens on its first frame');
   clearStorage();
 });
 
@@ -1143,8 +1296,7 @@ test("assignments: a built-in's state assignment is a stored DIFF, and nothing f
   clearStorage();
   store.saveStored({ skin: 'whale-chan' });
   store.refreshActiveSkin();
-  const props: any = { t: tKey, skin: 'whale-chan', grid: AVATAR_GRID, state: 'idle',
-    onStateChange: (s: string) => { props.state = s; } };
+  const props: any = { t: tKey, skin: 'whale-chan', grid: AVATAR_GRID, state: 'idle' };
   const render = mountPlain(StateAssignments, props);
   const lib = store.skinLibrary('whale-chan');
   // Looked up by NAME, not by position: the list shows this state's own ticks
@@ -1156,7 +1308,7 @@ test("assignments: a built-in's state assignment is a stored DIFF, and nothing f
   const authoredTool = authored.tool!.length;
 
   // The authored assignment is what the list shows first.
-  stateSelect(render()).props.onChange({ target: { value: 'tool' } });
+  props.state = 'tool';
   assert.equal(inputsIn(rowFor('xie-daima'))[0].props.checked, true, 'a tick the artwork assigned is on');
   assert.equal(inputsIn(rowFor('chi-niangao'))[0].props.checked, false, 'an unassigned one is off');
 
@@ -1199,34 +1351,44 @@ test('assignments: 清空 works on EVERY state — 空闲 keeps one, because it 
   clearStorage();
   store.saveStored({ skin: 'custom', custom: studioFixture() });
   store.refreshActiveSkin();
-  const props: any = { t: tKey, skin: 'custom', grid: AVATAR_GRID, state: 'idle',
-    onStateChange: (s: string) => { props.state = s; } };
+  const props: any = { t: tKey, skin: 'custom', grid: AVATAR_GRID, state: 'idle' };
   const render = mountPlain(StateAssignments, props);
   const clear = () => findAllByText(render(), 'S:settings.clearSelection')[0];
   const idle = () => store.loadStored().custom!.states.idle;
 
-  // 空闲 is the state the dropdown opens on, and the rule that shapes its two
-  // buttons is printed — not left to a title a button cannot show.
-  assert.equal(findAllByText(render(), 'S:settings.clearIdleHint').length, 1,
-    'the anchor rule is on screen whenever 空闲 is');
+  // 空闲's rule is NOT printed on the page — it is asked for when you press
+  // 清空, which is the only moment it matters.
+  assert.equal(findAllDeep(render(), 'status-pet-confirm').length, 0,
+    'no rule paragraph, and no dialog before you ask');
 
   // 全选 then 清空 is the bulk round trip that used to DEAD-END on 空闲: the
   // ticks went on and nothing could take them off again.
   findAllContaining(render(), 'S:settings.selectAll')[0].props.onClick();
   assert.deepEqual(idle(), ['idle-1', 'hop'], '全选 ticks the whole library');
   clear().props.onClick();
+  assert.ok(findDeep(render(), 'status-pet-confirm'), '清空 on 空闲 asks first');
+  assert.deepEqual(idle(), ['idle-1', 'hop'], 'and nothing is written yet');
+  assert.ok(hintSays(render(), 'S:settings.clearIdleHint'), 'the dialog carries the rule');
+  findAllContaining(render(), 'S:settings.cancel')[0].props.onClick();
+  assert.equal(findAllDeep(render(), 'status-pet-confirm').length, 0, 'Cancel closes it');
+  assert.deepEqual(idle(), ['idle-1', 'hop'], 'still nothing written');
+  clear().props.onClick();
+  findAllContaining(findDeep(render(), 'status-pet-confirm'), 'S:settings.clearSelection')[0]
+    .props.onClick();
   assert.deepEqual(idle(), ['idle-1'], '清空 clears 空闲 down to ONE — never to nothing');
   assert.deepEqual(store.validateArtwork(store.loadStored().custom!), [],
     'so the document still validates and the pet keeps drawing');
 
   // Every other state empties COMPLETELY: an empty selection IS the idle
   // fallback, and that is the one representation of "unset".
-  stateSelect(render()).props.onChange({ target: { value: 'tool' } });
-  assert.equal(findAllByText(render(), 'S:settings.clearIdleHint').length, 0,
-    'the anchor hint belongs to 空闲 alone');
+  props.state = 'tool';
+  assert.equal(findAllDeep(render(), 'status-pet-confirm').length, 0,
+    'the dialog belongs to 空闲 alone');
   inputsIn(findAllDeep(render(), 'status-pet-library-row')[1])[0]
     .props.onChange({ target: { checked: true } });
   clear().props.onClick();
+  assert.equal(findAllDeep(render(), 'status-pet-confirm').length, 0,
+    'every other state clears at once — nothing to explain');
   assert.equal(store.loadStored().custom!.states.tool, undefined,
     'a non-idle state clears to empty — the state follows idle');
   clearStorage();
@@ -1236,8 +1398,7 @@ test('assignments: the search box narrows the list, and 全选 only ticks what i
   clearStorage();
   store.saveStored({ skin: 'custom', custom: studioFixture() });
   store.refreshActiveSkin();
-  const props: any = { t: tKey, skin: 'custom', grid: AVATAR_GRID, state: 'tool',
-    onStateChange: (s: string) => { props.state = s; } };
+  const props: any = { t: tKey, skin: 'custom', grid: AVATAR_GRID, state: 'tool' };
   const render = mountPlain(StateAssignments, props);
   const rows = () => findAllDeep(render(), 'status-pet-library-row');
   const search = () => findDeep(render(), 'status-pet-import-search');
@@ -1251,8 +1412,8 @@ test('assignments: the search box narrows the list, and 全选 only ticks what i
   assert.equal(textOf(rows()[0]).includes('hop act'), true);
   assert.equal(findAllByText(render(), 'S:settings.searchMatches').length, 1,
     'and says how much of the library it is showing');
-  assert.equal(findAllByText(render(), 'S:settings.selectedCount').length, 1,
-    'the tick count is a read-out, not a guess');
+  assert.equal(findAllDeep(render(), 'status-pet-full').length, 0,
+    'no tick count while the cap is not in play');
 
   // 全选 is AIMED: it ticks what the filter listed, on top of what the state
   // already plays — replacing would silently drop ticks the filter hides.
@@ -1281,13 +1442,12 @@ test('pixel studio × assignments: one edit to a SHARED action changes every sta
   store.refreshActiveSkin();
 
   // Tick 'hop' for tool, and for done (the assignment half).
-  const aProps: any = { t: tKey, skin: 'custom', grid: AVATAR_GRID, state: 'idle',
-    onStateChange: (s: string) => { aProps.state = s; } };
+  const aProps: any = { t: tKey, skin: 'custom', grid: AVATAR_GRID, state: 'idle' };
   const assign = mountPlain(StateAssignments, aProps);
   const rows = () => findAllDeep(assign(), 'status-pet-library-row');
-  stateSelect(assign()).props.onChange({ target: { value: 'tool' } });
+  aProps.state = 'tool';
   inputsIn(rows()[1])[0].props.onChange({ target: { checked: true } });
-  stateSelect(assign()).props.onChange({ target: { value: 'done' } });
+  aProps.state = 'done';
   inputsIn(rows()[1])[0].props.onChange({ target: { checked: true } });
   let saved = store.loadStored().custom!;
   assert.deepEqual(store.usedBy(saved, 'hop').sort(), ['done', 'tool']);
@@ -1296,8 +1456,10 @@ test('pixel studio × assignments: one edit to a SHARED action changes every sta
   // Paint one pixel of that same action (the drawing half): BOTH states move.
   const before = store.resolveSkin(store.loadStored());
   const studio = mountPlain(PixelEditor, { t: tKey, actionId: 'hop' });
-  assert.ok(actionOptionLabels(studio()).find((l: string) => l.startsWith('hop act'))!
-    .includes('S:settings.usedByN'), 'the studio warns that the action is shared');
+  const shared = findAllDeep(comboOpen(studio), 'status-pet-row')
+    .find((r: any) => textOf(r).startsWith('hop act'))!;
+  assert.ok(textOf(shared).includes('S:settings.usedByN'),
+    'the picker warns that the action is shared');
   findDeep(studio(), 'status-pet-grid').children.flat()[2].children.flat()[2].props.onPointerDown();
   saved = store.loadStored().custom!;
   assert.equal(store.pixelAt(idleRows(saved)[2], 2), store.TRANSPARENT,
@@ -1311,93 +1473,10 @@ test('pixel studio × assignments: one edit to a SHARED action changes every sta
   clearStorage();
 });
 
-test('pixel studio: 导入来自内置库 — 覆盖当前动作，id 和状态关联都不动', () => {
-  // 导入 is not a merge any more: it FILLS the slot you are editing.  The
-  // library therefore never grows by 106 entries, and the states that played the
-  // action keep playing it (the id is what they reference).
-  clearStorage();
-  store.saveStored({ skin: 'custom', custom: customWithPalette() });
-  store.refreshActiveSkin();
-  const render = mountPlain(PixelEditor, { t: tKey });
-  const lib = () => store.loadStored().custom!.actions;
-  const builtin = store.skinLibrary('whale-chan');
-  const source = builtin.find((a) => a.id === 'chi-niangao')!;
-  assert.equal(lib().length, 1, 'the fixture starts with one action');
-  const idBefore = lib()[0].id;
-
-  // The picker: the built-in catalog AND my own action, both at this crop.
-  findAllByLabel(render(), 'S:settings.importAction')[0].props.onClick();
-  assert.equal(findAllDeep(render(), 'status-pet-import-row').length, builtin.length + 1,
-    'the built-in library plus my own action');
-  assert.deepEqual(findAllDeep(render(), 'status-pet-import-group-title').map((g: any) => textOf(g)),
-    ['S:settings.importSource.builtin', 'S:settings.importSource.mine'], 'grouped by where it comes from');
-  assert.equal(findAllDeep(render(), 'status-pet-import-row')
-    .filter((r: any) => textOf(r).includes('S:settings.importCurrent')).length, 1,
-    'my own row is marked as the one on the board');
-  // …and 106 rows need the search box.
-  findAllDeep(render(), 'status-pet-import-search')[0]
-    .props.onChange({ target: { value: 'chi-niangao' } });
-  const narrowed = findAllDeep(render(), 'status-pet-import-row');
-  assert.equal(narrowed.length, 1, 'searching narrows the catalog');
-  narrowed[0].props.onClick();
-
-  // The overwrite: same id, same states, new content.
-  const after = lib();
-  assert.equal(after.length, 1, 'importing does NOT grow the library');
-  assert.equal(after[0].id, idBefore, 'the id is kept, so the state references still resolve');
-  assert.deepEqual(store.usedBy(store.loadStored().custom!, idBefore), ['idle'],
-    'and idle still plays it');
-  assert.equal(after[0].name, '吃年糕', 'the source name comes along');
-  assert.equal(after[0].origin, 'chi-niangao', 'and its provenance');
-  assert.equal(after[0].frames.length, source.frames, 'the whole animation arrives');
-  assert.notDeepEqual(store.cellFor(after[0].frames[0], AVATAR_GRID).rows, store.blankRows(AVATAR_GRID), 'with real pixels');
-  assert.deepEqual(store.validateArtwork(store.loadStored().custom!), [],
-    'the imported colours were re-pointed at THIS artwork\'s palette');
-  assert.equal(findAllByText(render(), 'S:settings.importedOne').length, 1,
-    'and the picker reports which action landed');
-
-  // Destructive, but one 撤销 away.
-  findAllByLabel(render(), 'S:settings.undo')[0].props.onClick();
-  const back = lib();
-  assert.equal(back.length, 1, 'undo puts the slot back');
-  assert.equal(back[0].id, idBefore);
-  assert.equal(back[0].name, undefined, 'with my own (unnamed, blank) action');
-  clearStorage();
-});
-
-test('pixel studio: 导入 from my own library copies that content into the current slot', () => {
-  // The other source is this artwork's OWN actions at this crop — the two crops
-  // are isolated, so a 32px action is never offered to the 128px board.
-  clearStorage();
-  store.saveStored({ skin: 'custom', custom: studioFixture() });
-  store.refreshActiveSkin();
-  const render = mountPlain(PixelEditor, { t: tKey });
-  const lib = () => store.loadStored().custom!.actions;
-
-  // Give 'hop' a pixel of its own, then come back to 'idle-1'.
-  actionSelect(render()).props.onChange({ target: { value: 'hop' } });
-  findDeep(render(), 'status-pet-grid').children.flat()[2].children.flat()[2].props.onPointerDown();
-  actionSelect(render()).props.onChange({ target: { value: 'idle-1' } });
-
-  findAllByLabel(render(), 'S:settings.importAction')[0].props.onClick();
-  findAllByLabel(render(), 'hop act')[0].props.onClick();
-
-  const after = lib();
-  assert.equal(after.length, 2, 'no new slot: the content moved into the one being edited');
-  assert.deepEqual(after.map((a: any) => a.id), ['idle-1', 'hop']);
-  assert.equal(store.pixelAt(store.cellFor(after[0].frames[0], AVATAR_GRID).rows[2], 2), '01',
-    'idle-1 now carries hop\'s pixels');
-  assert.equal(after[0].name, 'hop act', 'and its name');
-  assert.equal(store.pixelAt(store.cellFor(after[1].frames[0], AVATAR_GRID).rows[2], 2), '01',
-    'while hop itself is untouched');
-  assert.deepEqual(store.validateArtwork(store.loadStored().custom!), [], 'the artwork stays valid');
-  clearStorage();
-});
-
 test('pixel studio: 新建动作 / 删除动作, and delete refuses to strand idle', () => {
-  // The 动作 row is three verbs and a name — 新建, 删除, 导入 — plus the dropdown.
-  // There is deliberately no 复制动作: filling a second slot is what 导入 is for,
-  // and the library stays a small set of slots you curate.
+  // The 动作 row is the picker plus two verbs — 新建 and 删除 — and the action's
+  // name on the row under it.  There is deliberately no 复制动作: the library
+  // stays a small set of slots you curate.
   clearStorage();
   store.saveStored({ skin: 'custom', custom: studioFixture() });
   store.refreshActiveSkin();
@@ -1408,8 +1487,8 @@ test('pixel studio: 新建动作 / 删除动作, and delete refuses to strand id
   // The selected action is the only one idle plays: deleting it would leave
   // the required idle assignment empty, so the button is off.
   assert.equal(size(), 2);
-  assert.equal(actionSelect(render()).props.value, 'idle-1', 'the first action is selected by default');
-  assert.equal(actionOptions(render()).length, 2, 'the dropdown offers both actions');
+  assert.equal(pickValue(render()), 'idle-1', 'the first action is selected by default');
+  assert.equal(picker(render()).props.library.length, 2, 'the picker offers both actions');
   assert.equal(findAllContaining(render(), 'S:settings.duplicateAction').length, 0,
     'no 复制动作 anywhere');
   assert.equal(del().props.disabled, true, 'deleting idle\'s only action is refused');
@@ -1418,7 +1497,7 @@ test('pixel studio: 新建动作 / 删除动作, and delete refuses to strand id
   // sharing it silently would make the button look broken.
   findAllByLabel(render(), 'S:settings.newAction')[0].props.onClick();
   assert.equal(size(), 3, '新建动作 always mints an action');
-  assert.equal(actionSelect(render()).props.value,
+  assert.equal(pickValue(render()),
     store.loadStored().custom!.actions[2].id,
     'and puts it on the board');
 
@@ -1426,125 +1505,6 @@ test('pixel studio: 新建动作 / 删除动作, and delete refuses to strand id
   del().props.onClick();
   assert.equal(size(), 2, 'the selected action is gone');
   assert.deepEqual(store.validateArtwork(store.loadStored().custom!), [], 'and the artwork is still valid');
-  clearStorage();
-});
-
-test('预览 · 按动作: 批量删除 ticks several actions, and a dialog confirms the removal', () => {
-  clearStorage();
-  const fixture: any = studioFixture();
-  fixture.actions.push(
-    actionOf2({ id: 'sleep-a', name: 'sleep act' }),
-    actionOf2({ id: 'tool-a', name: 'tool act' }),
-  );
-  // Two actions shared by one state, so the delete has real references to strip.
-  fixture.states.tool = ['sleep-a', 'tool-a'];
-  store.saveStored({ skin: 'custom', custom: fixture });
-  store.refreshActiveSkin();
-  const render = mountPlain(SettingsPage, { t: tKey });
-  const ids = () => store.loadStored().custom!.actions.map((a) => a.id);
-  const checks = () => findAllDeep(render(), 'status-pet-gallery-check');
-  const del = () => findAllContaining(render(), 'S:settings.deleteSelected')[0];
-  const dialog = () => findDeep(render(), 'status-pet-confirm');
-  const manage = () => findAllByLabel(render(), 'S:settings.manageActions');
-
-  // The gallery's OWN search is there before any selection mode, and the mode
-  // is offered by 按动作 alone (按状态 has no action to select).
-  findAllByText(render(), 'S:settings.view.actions')[0].props.onClick();
-  assert.equal(findAllDeep(render(), 'status-pet-import-search').length, 1,
-    '按动作 carries its search box');
-  assert.equal(checks().length, 0, 'no checkboxes until selection mode is asked for');
-  assert.equal(findAllDeep(render(), 'status-pet-gallery-edit').length, 4,
-    'every tile carries its corner ✎ while just looking');
-  // The button is a plain label: no icon prefix.
-  assert.equal(textOf(manage()[0]), 'S:settings.manageActions', 'no icon on the button');
-  manage()[0].props.onClick();
-  assert.equal(checks().length, 4, 'selection mode makes every action checkable');
-  assert.equal(findAllDeep(render(), 'status-pet-gallery-edit').length, 0,
-    'and the corner ✎ gives way to the checkbox');
-  assert.equal(findAllDeep(render(), 'status-pet-import-search').length, 1,
-    'the pick bar adds no second search box');
-
-  checks()[2].props.onChange();
-  checks()[3].props.onChange();
-  assert.ok(hintSays(render(), 'S:settings.selectedCount'), 'the tick count is a read-out');
-
-  // A removal is not undoable, so it asks FIRST — and cancelling writes nothing.
-  del().props.onClick();
-  assert.ok(dialog(), 'clicking Delete selected opens the confirm dialog');
-  assert.equal(ids().length, 4, 'and nothing has been removed yet');
-  findAllContaining(render(), 'S:settings.cancel')[0].props.onClick();
-  assert.equal(dialog(), null, 'Cancel closes it');
-  assert.equal(ids().length, 4, 'still nothing removed');
-
-  del().props.onClick();
-  findAllContaining(render(), 'S:settings.confirmDelete')[0].props.onClick();
-  assert.equal(dialog(), null, 'the dialog closes on confirm');
-  assert.deepEqual(ids(), ['idle-1', 'hop'], 'one write removed both');
-  assert.equal(store.loadStored().custom!.states.tool, undefined,
-    'and every state that referenced them lost just those references');
-  assert.deepEqual(store.validateArtwork(store.loadStored().custom!), [], 'the document stays valid');
-  assert.ok(hintSays(render(), 'S:settings.actionsRemoved'), 'and it says what happened');
-
-  // The guards are the single delete's, applied to the whole selection: idle
-  // would lose its only action, and emptying the library is refused too.
-  checks()[0].props.onChange();
-  assert.equal(del().props.disabled, true, 'deleting idle\'s only action is refused');
-  assert.equal(del().props.title, 'S:settings.deleteBlocked', 'and the reason is on the button');
-  del().props.onClick();
-  assert.equal(dialog(), null, 'a blocked removal never opens the dialog');
-  checks()[0].props.onChange();
-  for (const c of checks()) c.props.onChange();
-  assert.equal(del().props.disabled, true, 'so is deleting the whole library');
-  assert.equal(ids().length, 2, 'and the two that were removed stay removed — there is no undo');
-  clearStorage();
-});
-
-test('预览: both modes carry a search, and 批量删除 is 我的创作 · 按动作 alone', () => {
-  clearStorage();
-  store.saveStored({ skin: 'custom', custom: studioFixture() });
-  store.refreshActiveSkin();
-  let render = mountPlain(SettingsPage, { t: tKey });
-  const searches = () => findAllDeep(render(), 'status-pet-import-search');
-  const cells = () => findAllDeep(render(), 'status-pet-gallery-cell');
-
-  // 按状态: a search that finds a STATE — by name, meaning, or an action it plays.
-  assert.equal(searches().length, 1, '按状态 carries a search box');
-  assert.equal(cells().length, 11, 'all eleven states');
-  assert.equal(findAllByLabel(render(), 'S:settings.manageActions').length, 0,
-    'and no 批量删除 here — 按状态 has nothing to select');
-  searches()[0].props.onChange({ target: { value: 'idle act' } });
-  assert.equal(cells().length, 1, 'searching an action name finds the states that play it');
-  searches()[0].props.onChange({ target: { value: 'no such state' } });
-  assert.equal(cells().length, 0, 'nothing matches');
-  assert.ok(hintSays(render(), 'S:settings.searchEmpty'), 'and the empty state says so');
-
-  // 按动作: the same box, and here it scopes 全选.
-  findAllByText(render(), 'S:settings.view.actions')[0].props.onClick();
-  assert.equal(searches().length, 1, '按动作 carries its own search box');
-  const manage = () => findAllByLabel(render(), 'S:settings.manageActions');
-  assert.equal(manage().length, 1, '我的创作 offers the mode');
-  manage()[0].props.onClick();
-  const checks = () => findAllDeep(render(), 'status-pet-gallery-check');
-  assert.equal(checks().length, 2, 'the whole library is checkable');
-  searches()[0].props.onChange({ target: { value: 'hop' } });
-  assert.equal(checks().length, 1, 'the filter narrows the grid');
-  assert.ok(hintSays(render(), 'S:settings.searchMatches'), 'and reports how much of the library it shows');
-  findAllContaining(render(), 'S:settings.selectAll')[0].props.onClick();
-  assert.deepEqual(checks().map((c: any) => c.props.checked), [true],
-    '全选 takes what the search matched');
-  findAllContaining(render(), 'S:settings.clearSelection')[0].props.onClick();
-  assert.deepEqual(checks().map((c: any) => c.props.checked), [false], '清空 unticks the selection');
-
-  // A built-in's actions are frozen: the gallery still searches, but there is
-  // nothing to select or delete.
-  clearStorage();
-  store.saveStored({ skin: 'whale-chan' });
-  store.refreshActiveSkin();
-  render = mountPlain(SettingsPage, { t: tKey });
-  findAllByText(render(), 'S:settings.view.actions')[0].props.onClick();
-  assert.equal(searches().length, 1, '按动作 searches on a built-in too');
-  assert.equal(findAllByLabel(render(), 'S:settings.manageActions').length, 0,
-    'a built-in cannot prune its library');
   clearStorage();
 });
 
@@ -1619,67 +1579,11 @@ test('pixel studio: the 128 draft generates from the avatar; the body crop resol
   // 为所有动作生成草稿 fills the rest in, without touching what already exists.
   // It lives on the empty-state card, which is per action — so it is reachable
   // again by selecting an action that still has no body face.
-  actionSelect(render()).props.onChange({ target: { value: 'hop' } });
+  pickBy(render(), 'hop');
   findAllByText(render(), 'S:settings.genBodyAll')[0].props.onClick();
   const all = store.loadStored().custom!;
   assert.ok(all.actions.every((a: any) => store.hasActionBody(a)), 'every action has a body face now');
   assert.deepEqual(store.validateArtwork(all), [], 'and the document is still valid');
-  clearStorage();
-});
-
-test('pixel studio: import/export round trip with a localized error path', () => {
-  clearStorage();
-  store.saveStored({ skin: 'custom', custom: studioFixture() });
-  store.refreshActiveSkin();
-  const render = mountPlain(PixelEditor, { t: tKey });
-  // Open the IO fold.
-  findAllByLabel(render(), 'S:settings.io')[0].props.onClick();
-  const textarea = (v: El) => {
-    let found: any = null;
-    (function walk(el: any) {
-      if (found || !el || typeof el !== 'object') return;
-      if (el.type === 'textarea') { found = el; return; }
-      for (const c of childList(el)) walk(c);
-    })(v);
-    return found;
-  };
-
-  textarea(render()).props.onChange({ target: { value: 'garbage' } });
-  findAllByText(render(), 'S:settings.import')[0].props.onClick();
-  assert.ok(findDeep(render(), 'status-pet-error'), 'an invalid import shows the localized error');
-
-  const valid = store.serializeArtwork(customWithPalette());
-  textarea(render()).props.onChange({ target: { value: valid } });
-  findAllByText(render(), 'S:settings.import')[0].props.onClick();
-  assert.equal(store.loadStored().custom!.palette[2], SKINS['whale-chan'].palette[2],
-    'a valid import replaces the custom skin');
-  assert.ok(!findDeep(render(), 'status-pet-error'), 'a successful import clears the error');
-
-  findAllByText(render(), 'S:settings.export')[0].props.onClick();
-  const exported = textarea(render()).props.value;
-  assert.ok(store.parseArtworkExport(exported).data, 'export produces importable JSON');
-  clearStorage();
-});
-
-test('pixel studio: undo restores the previous artwork', () => {
-  clearStorage();
-  store.saveStored({ skin: 'custom', custom: studioFixture() });
-  store.refreshActiveSkin();
-  const render = mountPlain(PixelEditor, { t: tKey });
-  const grid = findDeep(render(), 'status-pet-grid');
-  const beforeRow = grid.children.flat()[1].children.flat().map((c: any) => c.props.style.background).join(',');
-  grid.children.flat()[1].children.flat()[3].props.onPointerDown();
-  const strokedRow = findDeep(render(), 'status-pet-grid').children.flat()[1].children.flat()
-    .map((c: any) => c.props.style.background).join(',');
-  assert.notEqual(strokedRow, beforeRow, 'stroke landed on the board');
-  const savedAfterStroke = idleRows(store.loadStored().custom!)[1];
-  findAllByLabel(render(), 'S:settings.undo')[0].props.onClick();
-  const afterUndoRow = findDeep(render(), 'status-pet-grid').children.flat()[1].children.flat()
-    .map((c: any) => c.props.style.background).join(',');
-  assert.equal(afterUndoRow, beforeRow, 'undo restores the pre-stroke board');
-  findAllByLabel(render(), 'S:settings.redo')[0].props.onClick();
-  assert.equal(idleRows(store.loadStored().custom!)[1], savedAfterStroke,
-    'redo reapplies the stroke');
   clearStorage();
 });
 
@@ -1768,10 +1672,14 @@ test('pixel studio: one labelled field per row, and the preview is not the frame
   const tree = PixelEditor({ t: tKey, grid: BODY_GRID }) as unknown as El;
 
   const fields = findAllDeep(tree, 'status-pet-field');
+  // 动作 → 画布 → 帧 → 画笔 → 当前帧: the frame strip sits directly under the board
+  // it selects ("draw a frame, duplicate it, nudge it"), and the frame's own
+  // numbers come last.  Every row is labelled, and the studio mentions no state
+  // (that is the OTHER object's business).
   assert.deepEqual(fields.map((f: any) => textOf(childList(f)[0])), [
-    'S:settings.region.action', 'S:settings.region.canvas', 'S:settings.region.palette',
-    'S:settings.field.frames', 'S:settings.region.frame',
-  ], 'every row is labelled, in reading order — and 按动作 mentions no state');
+    'S:settings.region.action', 'S:settings.region.canvas', 'S:settings.field.frames',
+    'S:settings.region.palette', 'S:settings.region.frame',
+  ], 'every row is labelled, in reading order');
   for (const f of fields) {
     assert.ok(String(childList(f)[1].props.className).split(' ').includes('status-pet-field-body'),
       'each label is followed by that row\'s controls');
@@ -1789,5 +1697,56 @@ test('pixel studio: one labelled field per row, and the preview is not the frame
     'the frame field owns this frame\'s length AND the action\'s shared pace');
   assert.ok(findAllByLabel(frameField, 'S:settings.moveUp').length === 1,
     'and the 整幅挪动 pad sits with it');
+  clearStorage();
+});
+
+test('pixel studio: 动作 is two explicit rows, and 整幅挪动 is a labelled row', () => {
+  // The reported mess: five controls of three kinds wrapped wherever they fit in
+  // one row, and the nudge pad floated under the frame's numbers.  Both fixes
+  // are structural, so they are asserted structurally.
+  clearStorage();
+  store.saveStored({ skin: 'custom', custom: studioFixture() });
+  store.refreshActiveSkin();
+  const render = mountPlain(PixelEditor, { t: tKey });
+  const tree = render();
+
+  // 动作: the picker has the first line to itself; the action's NAME and the two
+  // library verbs — 新建动作 / 删除动作 — share the second.  No 导入动作, no
+  // 移除 128 面.
+  const actionRows = findAllDeep(tree, 'status-pet-action-row');
+  assert.equal(actionRows.length, 2, 'the 动作 row is two explicit lines');
+  assert.equal(findAllByType(actionRows[0], ActionCombo).length, 1, 'the picker has the first line');
+  assert.equal(findAllByLabel(actionRows[0], 'S:settings.newAction').length, 0, 'and nothing else on it');
+  assert.equal(findAllByLabel(actionRows[0], 'S:settings.deleteAction').length, 0);
+  assert.equal(findAllByLabel(actionRows[1], 'S:settings.actionName').length, 1, 'the name leads the second');
+  assert.equal(findAllByLabel(actionRows[1], 'S:settings.newAction').length, 1, '新建动作 is beside it');
+  assert.equal(findAllByLabel(actionRows[1], 'S:settings.deleteAction').length, 1, 'and 删除动作');
+  assert.equal(findAllByContainText(tree, 'S:settings.importAction').length, 0, 'no 导入动作');
+  assert.equal(findAllByContainText(tree, 'S:settings.removeBody').length, 0, 'no 移除 128 面');
+
+  // 当前帧: 整幅挪动's label and its pad live in ONE row, so the three rows of
+  // the field line up instead of the pad hanging under the numbers.
+  const offset = findDeep(tree, 'status-pet-offset-row');
+  assert.ok(offset, '整幅挪动 is its own labelled row');
+  assert.match(textOf(offset), /S:settings\.frameOffset/);
+  assert.equal(findAllByLabel(offset, 'S:settings.moveUp').length, 1, 'with the pad inside it');
+  assert.equal(findAllByLabel(offset, 'S:settings.moveLeft').length, 1);
+
+  // The frame ops are ONE group riding the filmstrip row — 复制一帧 / 空白帧, and
+  // 删除此帧 as soon as there is a frame to delete.  No row of its own.
+  const ops = () => findDeep(render(), 'status-pet-frame-ops');
+  assert.ok(ops(), 'the ops ride the filmstrip');
+  assert.equal(findAllByLabel(ops(), 'S:settings.addFrame').length, 1, '复制一帧');
+  assert.equal(findAllByLabel(ops(), 'S:settings.addBlankFrame').length, 1, '空白帧');
+  assert.equal(findAllContaining(ops(), 'S:settings.delFrame').length, 0,
+    'one frame: there is nothing to delete');
+  assert.equal(findAllDeep(render(), 'status-pet-frame-nav').length, 0,
+    'and no second row for the frame list');
+  findAllByLabel(tree, 'S:settings.addFrame')[0].props.onClick();
+  assert.equal(findAllContaining(ops(), 'S:settings.delFrame').length, 1,
+    '删除此帧 joins them on the same row');
+  assert.equal(findAllDeep(render(), 'status-pet-frame-nav').length, 0, 'still no row of its own');
+  assert.equal(findAllDeep(render(), 'status-pet-footer').length, 0, 'no undo/redo footer');
+  assert.equal(findAllByLabel(render(), 'S:settings.io').length, 0, 'no JSON fold');
   clearStorage();
 });

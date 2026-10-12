@@ -28,41 +28,40 @@ test('every state and reaction is labelled in every locale', () => {
 
 test('every settings string is labelled in every locale', () => {
   const required = [
-    'settings.nav', 'settings.previewHint', 'settings.tab.preview', 'settings.tab.edit',
-    'settings.skins', 'settings.grid.32', 'settings.grid.128',
+    'settings.nav', 'settings.previewHint', 'settings.skins', 'settings.grid.32', 'settings.grid.128',
     'settings.brushN', 'settings.eraser',
-    'settings.export', 'settings.import',
-    'settings.io', 'settings.importError',
-    'settings.undo', 'settings.redo', 'settings.paste',
-    'settings.genBody', 'settings.copyFrame', 'settings.delFrame', 'settings.frameMs',
+    'settings.genBody', 'settings.delFrame', 'settings.frameMs',
     'settings.followIdle', 'settings.addFrame', 'settings.emptyBody',
-    'settings.blankBody', 'settings.region.states', 'settings.region.action', 'settings.region.canvas',
+    'settings.blankBody', 'settings.region.action', 'settings.region.canvas',
     'settings.region.frames', 'settings.region.palette', 'settings.field.frames',
     // The assignment surface (编辑 · 按状态): its dropdown, its list and its ops.
     'settings.region.library', 'settings.libraryHint', 'settings.actionCount', 'settings.actionN',
     'settings.actionName', 'settings.actionNameHint', 'settings.actionMs', 'settings.actionMsHint',
     'settings.newAction', 'settings.deleteAction', 'settings.deleteUsed',
-    'settings.importAction', 'settings.importSearch', 'settings.importHint',
-    'settings.importSource.builtin', 'settings.importSource.mine', 'settings.importCurrent',
-    'settings.importedOne', 'settings.usedByN', 'settings.unusedAction',
+    'settings.usedByN', 'settings.unusedAction',
     'settings.playedHere', 'settings.emptyLibrary',
     'settings.libraryFull', 'settings.selectAll', 'settings.clearSelection',
     // Finding an action in a 106-entry library, and editing several at once.
-    'settings.searchActions', 'settings.searchStates', 'settings.searchMatches', 'settings.searchEmpty',
-    'settings.selectAllHint', 'settings.confirmDeleteTitle', 'settings.confirmDeleteHint',
+    'settings.searchActions', 'settings.searchMatches', 'settings.searchEmpty',
+    'settings.comboPlaceholder', 'settings.comboEmpty',
+    'settings.confirmDeleteTitle', 'settings.confirmDeleteHint',
     'settings.cancel', 'settings.confirmDelete',
     'settings.selectedCount', 'settings.selectedMax',
     'settings.manageActions', 'settings.bulkHint', 'settings.deleteSelected',
     'settings.deleteBlocked', 'settings.actionsRemoved',
-    // The seam between the two tabs: the corner ✎ and what it opens.
-    'settings.editAction', 'settings.editState', 'settings.actionHint', 'settings.assignCropMissing',
-    'settings.builtinStatesOnly', 'settings.clearIdleHint',
-    // The gallery's two ways of looking at the same artwork.
-    'settings.view', 'settings.view.states', 'settings.view.actions', 'settings.unusedCount',
-    'settings.showMore', 'settings.actionFrames',
+    // The seam between the two views: a row opens its own detail, and a state
+    // row hands one of its actions to the board.
+    'settings.actionHint',
+    'settings.clearIdleHint',
+    // The ONE axis, the two faces, and the master / detail split.
+    'settings.view', 'settings.view.states', 'settings.view.actions',
+    'settings.face',
+    'settings.grid.32Hint', 'settings.grid.128Hint',
+    'settings.master.states', 'settings.master.reactions',
+    'settings.actionFrames',
     ...['idle','sleep','think','stream','tool','approval','question','error','done','petted','woken'].map((n) => 'settings.hint.' + n),
     ...BUILTIN_NAMES.map((n) => 'settings.skin.' + n),
-    'settings.skin.custom',
+    'settings.skin.custom', 'settings.skin.customHint',
   ];
   const missing: string[] = [];
   for (const key of required) {
