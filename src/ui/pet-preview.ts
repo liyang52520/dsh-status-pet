@@ -1,18 +1,15 @@
 // PetPreview — the ONE component that plays the pet outside the dock.
 // The loop plays the skin's frame animation for the current state: takes
-// re-roll randomly per cycle; `takeIndex` pins one take (the editor
-// previews the take being edited).
+// re-roll randomly per cycle.
 // Optional props cover every usage:
 //
-//   skinName    pin a named skin ('whale-chan', 'cat', 'custom') instead of
-//               following the active skin — the picker's cards.  A custom
-//               slot without data draws a blank canvas.
+//   skinName    pin a named skin ('whale-chan', 'cat') instead of following
+//               the active skin — the picker's cards.  A skin whose artwork
+//               chunk has not landed yet draws a blank canvas.
 //   best        pin the most-detailed resolution (HD grid when present) —
 //               the click popup.
-//   crop        pin the ACTIVE skin to one crop (32 | 128) — the settings
-//               gallery's 32/128 switch; same as `best` but at a chosen crop.
 //   state       pin a state name, showing its real face AND motion — the
-//               settings state gallery, and the click popup (which pins the
+//               settings state header, and the click popup (which pins the
 //               dock's derived state).
 //   follow      mirror the DOCK's take and phase instead of rolling this
 //               canvas's own (the click popup): the peek plays the exact
@@ -22,12 +19,16 @@
 //   reaction    a transient reaction owned by the caller (the popup pets from
 //               anywhere in its panel); it outranks the pinned state and the
 //               component's own click reaction.
+//   takeId      pin ONE library action by its id — the settings state header
+//               plays the hovered action live.  It resolves a single-action
+//               skin, so it works alongside `skinName`, and it takes precedence
+//               over it.
 //   scale       draw scale override (the cards pass one; previews default to
 //               4× for the 32px avatar grid and 1× for the 128px body grid,
 //               so both crops land on the same 128px of art).
 //   interactive false renders a bare decorative canvas (no button, no
-//               tooltip, no petting) — for cards and gallery cells, which
-//               already live inside their own clickable wrappers.
+//               tooltip, no petting) — for cards and list rows, which already
+//               live inside their own clickable wrappers.
 //
 // Same shared loop as the dock pet; every variant follows skin changes live.
 
@@ -46,34 +47,23 @@ export interface PetPreviewProps {
   /** With skinName: which crop to resolve (default: the 32px avatar). */
   grid?: number;
   best?: boolean;
-  /** Pin the ACTIVE skin to one crop (32 = the avatar, 128 = the full body).
-   * What the settings gallery's 32/128 switch uses: a viewing preference, so
-   * the 32px crop is drawn at 4× and both land on the same on-screen size.
-   * Unlike `grid`, it follows the active skin (it is what `best` does, at a
-   * chosen crop); a missing body falls back to the avatar. */
-  crop?: number;
   state?: string;
   /** Mirror the dock's take and phase (the click popup) — see `LoopRole`. */
   follow?: boolean;
   /** A transient reaction handed down by the owner (the popup pets the pet
-   * from anywhere in its panel, so the reaction lives there and is fed to the
-   * one canvas).  It outranks the pinned state exactly like the component's
-   * own click reaction, and expires with the owner's timer. */
+   *  from anywhere in its panel, so the reaction lives there and is fed to the
+   *  one canvas).  It outranks the pinned state exactly like the component's
+   *  own click reaction, and expires with the owner's timer. */
   reaction?: string;
-  /** Pin the take index (the loop's rotation pin). */
-  takeIndex?: number;
-  /** Pin ONE LIBRARY ACTION by its id — the Workshop's "look at this action"
-   * preview, used by the studio (editing that action) and by the 按动作 gallery
-   * (browsing the library, including actions no state plays yet).  It resolves
-   * a single-action skin, so it works alongside `skinName` (the studio) and
-   * `crop` (the gallery), and it takes precedence over both. */
+  /** Pin ONE LIBRARY ACTION by its id — the settings header's live preview of
+   *  the action under the pointer.  It resolves a single-action skin at either
+   *  crop, so it works alongside `skinName` and takes precedence over it. */
   takeId?: string;
   /** How many canvas px one sprite pixel occupies. */
   scale?: number;
   /** CSS zoom applied to the finished canvas (LIVE_ZOOM for the dock popup:
    *  64px of body instead of 128).  The sprite is still rendered 1:1 — only the
-   *  element shrinks, by an exact ratio, so `pixelated` stays sharp.  The
-   *  Workshop leaves it at 1 so every rendered pixel is visible. */
+   *  element shrinks, by an exact ratio, so `pixelated` stays sharp. */
   zoom?: number;
   interactive?: boolean;
   className?: string;
@@ -84,7 +74,6 @@ export function PetPreview(props: PetPreviewProps | null) {
   props = props || {};
   const skinName = props.skinName;
   const best = !!props.best;
-  const crop = props.crop;
   const pinnedState = props.state;
   const interactive = props.interactive !== false;
   const t = translatorOrFallback(props.t);
@@ -103,10 +92,6 @@ export function PetPreview(props: PetPreviewProps | null) {
 
   const reducedRef = useReducedMotion();
   const skinRef: MutableRef<ResolvedSkin | null | undefined> = React.useRef(null);
-  const takePinRef = React.useRef(props.takeIndex ?? -1);
-  React.useEffect(() => {
-    takePinRef.current = props.takeIndex ?? -1;
-  }, [props.takeIndex]);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
 
   React.useEffect(() => {
@@ -118,17 +103,16 @@ export function PetPreview(props: PetPreviewProps | null) {
     const role = props.follow ? 'follow' as const : 'free' as const;
     // Nothing pinned: follow the store's ACTIVE skin per frame (the store keeps
     // it fresh), which needs no subscription at all.
-    if (takeId === undefined && skinName === undefined && !crop && !best) {
+    if (takeId === undefined && skinName === undefined && !best) {
       skinRef.current = undefined;
-      return startLoop(canvas, faceRef, reducedRef, scaleFor, null, takePinRef, zoom, role);
+      return startLoop(canvas, faceRef, reducedRef, scaleFor, null, zoom, role);
     }
     // One resolver for every pinned shape.  A pinned ACTION outranks the rest:
-    // it is a whole skin of one action, so it fits `skinName` (the studio) and
-    // `crop` (the gallery) alike.
+    // it is a whole skin of one action, so it fits `skinName` and `grid` alike.
     const update = () => {
       const name = skinName !== undefined ? skinName : activeSkin().name;
       if (takeId !== undefined) {
-        const want = props.grid || crop || AVATAR_GRID;
+        const want = props.grid || AVATAR_GRID;
         skinRef.current = resolveTakeSkin(name, want, takeId)
           || (want === BODY_GRID ? resolveTakeSkin(name, AVATAR_GRID, takeId) : null)
           || resolveNamedSkin(name, props.grid);
@@ -139,28 +123,16 @@ export function PetPreview(props: PetPreviewProps | null) {
         skinRef.current = resolveNamedSkin(skinName, props.grid);
         return;
       }
-      if (crop) {
-        // The active skin at a chosen crop: the 32px avatar is drawn at 4× by
-        // `scaleFor`, and a body-less skin resolves the avatar for the 128px
-        // request, so both settings land on the same on-screen size.  `zoom` is
-        // the LIVE display factor and leaves the rendered pixels untouched.
-        // Body first, then the avatar: a skin without a body falls back to its
-        // own 32px crop at 4× rather than to another skin's artwork.
-        skinRef.current = resolveNamedSkin(name, crop)
-          || (crop === BODY_GRID ? resolveNamedSkin(name, AVATAR_GRID) : null)
-          || resolveBestSkin();
-        return;
-      }
       skinRef.current = resolveBestSkin();
     };
     update();
     const unsubSkin = onSkinChange(update);
-    const stopLoop = startLoop(canvas, faceRef, reducedRef, scaleFor, skinRef, takePinRef, zoom, role);
+    const stopLoop = startLoop(canvas, faceRef, reducedRef, scaleFor, skinRef, zoom, role);
     return () => {
       stopLoop();
       unsubSkin();
     };
-  }, [skinName, best, crop, props.scale, props.zoom, props.grid, props.takeId, props.follow]);
+  }, [skinName, best, props.scale, props.zoom, props.grid, props.takeId, props.follow]);
 
   function onClick() {
     react('petted');
@@ -169,7 +141,7 @@ export function PetPreview(props: PetPreviewProps | null) {
   // Initial canvas size; the loop resizes to the exact grid × scale on the
   // first frame (a skin that resolves to its other crop replaces these).  The
   // width includes the grid's horizontal headroom (`padX`), like the loop's.
-  const initGrid = props.grid || crop || AVATAR_GRID;
+  const initGrid = props.grid || AVATAR_GRID;
   const initScale = props.scale || (initGrid === AVATAR_GRID ? 4 : 1);
   const initW = GRIDS[initGrid].canvasW * initScale;
   const initH = GRIDS[initGrid].canvasH * initScale;

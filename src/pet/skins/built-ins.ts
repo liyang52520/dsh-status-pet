@@ -1,9 +1,8 @@
-// The built-in skin registry.
+// The built-in skin registry — the only artwork there is.
 //
-// A built-in is PLAIN ARTWORK: the same shape 我的创作 has (see the `Artwork`
-// type in compose.ts) — a palette, ONE action library with both faces inside
-// each action, and one state assignment.  Nothing is composed, mirrored or
-// upscaled at load any more.
+// A built-in is PLAIN ARTWORK (see the `Artwork` type in compose.ts): a
+// palette, ONE action library with both faces inside each action, and one state
+// assignment.  Nothing is composed, mirrored or upscaled at load.
 //
 // The data is baked from raw gif material (now deleted) and shipped as a
 // SEPARATE, lazily-loaded chunk (`client.artwork.js`), so ~16MB of frames never
@@ -40,11 +39,6 @@ export function installArtwork(art: Record<string, Artwork | LibraryArtwork>): v
     if (doc) next[name] = doc;
   }
   SKINS = next;
-}
-
-/** Have we got the artwork yet?  The dock draws nothing until we do. */
-export function isArtworkReady(): boolean {
-  return Object.keys(SKINS).length > 0;
 }
 
 /** One built-in's artwork, or undefined while the chunk is still in flight.

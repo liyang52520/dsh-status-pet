@@ -5,7 +5,8 @@ composer dock (the status bar above the chat input). **It shows what the agent i
 doing** — sleeping when nothing happens, working while a tool runs, bowing up when
 something needs your approval, sheepish when a turn fails. Click it and the **big
 picture pops up**: an anchored, animated, pettable panel. The Settings tab swaps
-**skins** and hosts a **pixel board** for drawing your own.
+**skins**, shows her whole **action library** one animation at a time, and lets you change
+**which of a skin's own actions each state plays**.
 
 ### The three layers
 
@@ -15,15 +16,16 @@ Every feature belongs to exactly one layer:
 |---|---|---|---|
 | Resident | dock, far left | the pet itself — a pure read-out, no interactions of its own | the 32px **avatar** face, backing 40×40, at `LIVE_ZOOM` → **16 CSS px of art** |
 | Peek | the click popup | the big animated **full body** + every interaction, petting first | the 128px **body** face, backing 160×160, at `LIVE_ZOOM` → **64 CSS px of art** |
-| Workshop | Settings → Status Pet | the skin cards, then ONE axis — **状态** / **动作**, two nouns rather than two query modes: a LIGHT eleven-row state list beside its edit surface, and the studio at full width with ONE picker that searches, previews and selects the action. **头像 / 全身** is a full-width row ON TOP of the canvas | the studio board at 1:1; the state's header picture at `LIVE_ZOOM`; the studio's live preview |
+| Workshop | Settings → Status Pet | the skin cards, then ONE axis — **状态** / **动作**: the eleven states beside their edit (the state's header, an 80px live picture at the most detailed face, and one checkbox per action), and the library one action at a time on a 1:1 board that only LOOKS | the 状态 header picture and the 动作 preview at `LIVE_ZOOM`; the 动作 board at 1:1; every library row a PLAYING thumbnail at 1:1 |
 
 A skin is one character as **two faces of every action**: the 32px avatar (dock,
-REQUIRED) and the optional 128px full body (popup). Users draw both in the pixel
-studio; a missing body face falls back to that action's avatar at a crisp 4×
-integer upscale. The pet sits at the
-**far left of the dock, fixed** — position is deliberately not configurable (see
-*Position: fixed at the far left*). Every skin can have its STATE ASSIGNMENTS
-changed; only 我的创作 can have its PIXELS drawn.
+REQUIRED) and the optional 128px full body (popup); a missing body face falls back
+to that action's avatar at a crisp 4× integer upscale. The pixels are **authored
+and frozen** — the user's one lever is the STATE ASSIGNMENT (which of a built-in's
+own actions each state plays). The pet sits at the **far left of the dock, fixed** —
+position is deliberately not configurable (see *Position: fixed at the far left*). The
+**动作** view LOOKS and the **状态** view owns the assignment: nothing on the page can
+change a pixel.
 
 ---
 
@@ -67,18 +69,16 @@ lives; the root files are plumbing.
 │   │   ├── grids.ts                    GRIDS (32/128 geometry, maxOffset, canvasW) + LIVE_ZOOM
 │   │   ├── labels.ts                   LABELS (en/zh) + namespace + translatorOrFallback
 │   │   └── skins/                      the wardrobe — one concern, one invalidation rule each
-│   │       ├── compose.ts        the PAIRED model (one action, two faces) + the v7/v8 shapes
-│   │       │                     + the ONE upgrade door (upgradeArtwork/pairArtwork) + actionKey/
-│   │       │                     addToLibrary + parseFrame/spriteFor + cellFor/upscaleCell
-│   │       ├── validate.ts       validateArtwork (fused, allocation-free) + MAX_* + the memos
-│   │       ├── convert.ts        convertArtwork: any stored shape → a VALID v9 document
-│   │       ├── paint.ts          blankRows/findOrAdd/adoptRows/paintCell/shiftRows
-│   │       ├── library.ts        reference maintenance (assign|rename|replace|remove|
-│   │       │                     removeLibraryTakes|replaceFrameCell) + usageIndex + libraryInfo
-│   │       ├── storage.ts        schema v9 + load/save + the v7/v8 migrations + the
-│   │       │                     coalesced write policy + paint box
+│   │       ├── compose.ts        the PAIRED model (one action, two faces) + the baked v8
+│   │       │                     shape + the ONE shape door (upgradeArtwork/pairArtwork)
+│   │       │                     + parseFrame/spriteFor + cellFor/upscaleCell
+│   │       ├── library.ts        the library reads (usedBy/libraryInfo/usageIndex) + the
+│   │       │                     state assignment (assignTake/setStateSelection)
+│   │       ├── validate.ts       validateArtwork — the authored chunk's invariant check,
+│   │       │                     run by the suite (nothing validates at runtime)
+│   │       ├── storage.ts        schema v10 + load/save + the v8→v10 migration
 │   │       ├── documents.ts      artworkDoc/skinArtwork reads + the withOverrides DIFF
-│   │       │                     + seedArtworkFrom + serializeArtwork/parseArtworkExport
+│   │       │                     (and the ONLY sanitizer an untrusted list of ids meets)
 │   │       ├── built-ins.ts      BUILTIN_NAMES — the registry the artwork chunk fills
 │   │       ├── resolve.ts        artwork → ResolvedSkin (identity-keyed) + ACTIVE + broadcast
 │   │       └── store.ts          the FACADE: re-exports the public surface (one entry point)
@@ -90,13 +90,16 @@ lives; the root files are plumbing.
 │   └── ui/                           where the pet lives (the three layers)
 │       ├── hooks.ts / dock-pet.ts / dock-popup.ts / pet-preview.ts / styles.ts
 │       └── settings/                 page.ts (the shell: skin cards, the 状态/动作
-│                                     axis, the state list + studio), skin-picker.ts
-│                                     (cards + activateSkin), assignments.ts (the
-│                                     state's edit surface), pixel-editor.ts (studio),
-│                                     action-combo.ts (the searchable picker),
-│                                     frame-canvas.ts, field.ts
+│                                     axis, the state list + its edit and the viewer),
+│                                     skin-picker.ts (cards + activateSkin),
+│                                     assignments.ts (the state's edit surface),
+│                                     action-viewer.ts (the read-only 动作 view),
+│                                     action-combo.ts (its searchable picker),
+│                                     action-thumb.ts (a PLAYING row thumbnail),
+│                                     frame-canvas.ts (a filmstrip still),
+│                                     field.ts (one labelled row)
 ├── README.md / LICENSE / .gitignore   human overview / MIT / ignores the artifacts + node_modules
-├── bench/        the perf harness (NOT shipped): store.mjs/board.mjs price the hot paths,
+├── bench/        the perf harness (NOT shipped): store.mjs prices the hot paths,
 │                harness.mjs stubs window and times a run
 ├── docs/media/   README imagery (frozen snapshots of the shipped artwork)
 └── test/         node:test suite, TypeScript (see *Testing*)
@@ -166,7 +169,7 @@ edited by hand if a built-in action needs a fix. The provenance comment above
 every action (source gif, frame indices, gloss) is the surviving record of how it
 was made, and the per-action ids/names/origins are the catalog.
 
-It ships as its own chunk so `client.js` stays code-only (~180KB against 15.6MB of
+It ships as its own chunk so `client.js` stays code-only (**84KB** against 15.6MB of
 frames) — and it is left in the **v8 shape** (one library per crop) on purpose:
 the 15.9MB of frozen pixels are hand-maintained and their provenance comments are
 the catalog, so a codemod rewrite would risk the record for no runtime gain.
@@ -176,14 +179,13 @@ therefore depends on the two crops' libraries staying in step in this file: the
 same ids, in the same order, with the same `frameMs`, frame counts and offsets
 (see *The paired model*).
 
-Three editing paths: a **custom skin** — the normal one, pick 我的创作 and let it seed
-itself from the built-in library; a **hand-edit** of `src/artwork.gen.ts` for a genuine fix, keeping the
-provenance comment truthful; or **restoring the raw art**, the only route back to the
+Two editing paths: a **hand-edit** of `src/artwork.gen.ts` for a genuine fix, keeping
+the provenance comment truthful; or **restoring the raw art**, the only route back to the
 source: `git log` has `assets/*.gif`, `tools/gif-map.json` and `tools/gen-artwork.py`;
 `git checkout <rev> -- assets tools`, put the gifs back under their original names, and
 `python3 tools/gen-artwork.py` runs again unchanged (needs Python 3 + pillow + numpy).
 Every action then stores `FRAMES` frames (currently 4) sampled evenly across the gif's
-loop. `docs/media/` imagery is frozen the same way — its renderer
+loop. `docs-media/` imagery is frozen the same way — its renderer
 (`tools/gen-readme-media.py`, with `tools/dump-artwork.mjs`) survives only in `git log`.
 
 The shipped DEFAULTS were re-aimed by hand: every state names 1–4 actions chosen for what
@@ -200,8 +202,9 @@ action  = { id, name?, origin?, frameMs, frames: [frame, …] }  // ONE animatio
 artwork = { palette: ['transparent', …], actions: [action, …], states: { idle: [id, …], … } }
 ```
 
-A **built-in is exactly this** — the same object 我的创作 is, and there is exactly
-one path from an `Artwork` to render-ready states. (The old
+**This is the only artwork there is.** A built-in is exactly this shape, `pairArtwork`
+produces it once at install, and there is exactly one path from an `Artwork` to
+render-ready states. (The old
 `top`/`flanks`/`faces`/`bottom` blocks and the `RECIPES` motion script were removed
 with the gif pipeline: the gifs already carried the motion and the expressions, and
 storing real frames is what let the artwork be 1:1 with the source at 128px.)
@@ -214,19 +217,17 @@ different animations; v9 makes that impossible:
 
 - **`cells[32]` is REQUIRED, `cells[128]` is OPTIONAL.** A missing body face is
   DERIVED as its avatar at an exact 4× upscale (`upscaleCell`/`cellFor` — the ONE
-  definition the renderer, the thumbnails and the studio share), memoized per
-  (frame, face); a skin whose actions ALL lack a body resolves its popup from the
-  avatar grid at 4× (the cheap path). The body is optional PER ACTION: the 128 board
-  offers a draft (this action, or every action at once) or a blank grid. Within one action
-  the mutators
-  keep it all-or-nothing (复制一帧/空白帧 carry the face along), so a mixed action
-  can only arrive from hand-written JSON.
+  definition the renderer and the row thumbnails share), memoized per (frame, face);
+  a skin whose actions ALL lack a body resolves its popup from the avatar grid at 4×
+  (the cheap path). The body is optional PER ACTION, and in practice all-or-nothing:
+  the baked chunk carries every face, and `pairArtwork` fills a blank avatar for a
+  body-only action.
 - **Everything that is not a pixel is SINGLE SOURCE.** Frame count, `frameMs`, the
   per-frame `ms` and the whole-frame offset live on the ACTION/FRAME and describe
   both faces, so there is no way to draw four frames for the head and five for the body.
 - **Offsets are authored in AVATAR units**, rendered `× offsetScale(grid)` (×4 on the
-  body): one `整幅挪动` is the same hop on both faces, and `GRIDS[128].maxOffset` is
-  exactly `GRIDS[32].maxOffset × 4` — what that headroom was for.
+  body): `GRIDS[128].maxOffset` is exactly `GRIDS[32].maxOffset × 4` — what that
+  headroom was for.
 - **One state table.** `states` names ids once for the whole artwork, so the dock and
   the popup roll from the same action set (two states naming the same set still share
   ONE resolved object by identity).
@@ -237,63 +238,62 @@ The model flipped in v8 and gained its second face in v9, and this is the one
 thing to understand before touching any of it: **an action belongs to the ARTWORK,
 never to a state — and an action is ONE animation with TWO faces.** A state stores
 a list of `id`s (`states.tool = ['xie-daima', 'hop']`), and `resolveStateTakes`
-maps those ids through the crop's `library`. The renderer only ever sees the
-resolved `states[state].takes`, so **not one line of `renderer/` changed** — the
-flip is entirely in the store, the Workshop and the data.
+maps those ids through the library. The renderer only ever sees the resolved
+`states[state].takes`, so **not one line of `renderer/` changed** — the flip is
+entirely in the store, the Workshop and the data.
 
 What that buys, and what to keep true:
 
-- **Reuse is a reference.**  One action ticked in four states is still one
-  definition: editing it once changes all four. Both halves must keep the sharing
-  VISIBLE — the picker's rows, the state's checklist and the delete button all
-  report `被 N 个状态在用`, and deleting an action strips it from every state that
-  referenced it (`removeLibraryTake`), so a dangling id cannot exist.
-- **Ids, not indices.**  Deleting an action used to shift every later take's index,
-  silently re-pointing a state at its neighbour's animation. Ids are minted by
-  `freeTakeId` (a readable base, `-2` on collision) and validated unique.
+- **Reuse is a reference.**  One action ticked in four states is still ONE
+  definition: the pixels are stored once, and every surface reports the sharing —
+  each row of the assignment list reads out `被 N 个状态在用` (`usedBy`), and two
+  states that play the same set resolve to ONE object.
+- **Ids, not indices.**  A state holds ids, so re-pointing a state can never shift
+  what another state plays. Ids come from the chunk (`freeTakeId` and the
+  content-dedupe are gone with the editor — nothing mints an id at runtime).
 - **One representation of "unset".**  An empty/absent state list FOLLOWS IDLE —
   that is `settings.followIdle`, and `setStateSelection` deletes the key rather
   than storing `[]`. There is no "take over this state" step: ticking a checkbox
   IS taking it over.
-- **Sharing is by content, or by choice.**  `addToLibrary` dedupes by content
-  (`actionKey`: both faces + the shared settings) so a merge never stores the same
-  animation twice; `meta.unique` opts out, which is what 新建动作 needs — an identical
-  blank is already in the library and sharing it would make the button look broken.
-- **An action's pace is shared.**  `frameMs` lives on the action, so a shared animation
-  cannot tick at four speeds — a per-state override would reintroduce the drift.
+- **An action's pace is shared.**  `frameMs` lives on the action, so an animation
+  cannot tick at two speeds for two states.
 - **Identity sharing in resolution.**  Two states that play the same set share ONE
-  resolved object (`states.a === states.b`), and an unassigned state IS `states.idle`;
-  the memo key is the SELECTION, not the state name.
-- **The upgrade door is one function.**  `upgradeArtwork(input)` takes ANY older
-  shape and returns a v9 document: a v7 one (a state owning its takes) goes through
-  `libraryFromLegacy`, a v8 one (one library per crop) through `pairArtwork`, and a
-  v9 one comes back unchanged. It is the single entrance for a stored document, an
-  import AND the generated built-in chunk, and it is memoized by the input object
-  (a WeakMap) so a re-read gives back the SAME artwork identity the resolution
-  caches are keyed on. It shares row strings by reference throughout, so upgrading
-  15MB of artwork is a pass over 106 objects, not a copy.
-  `pairArtwork` takes the AVATAR crop as the authority (action order,
-  `frameMs`/`ms`/offsets/name, and the state assignment) and keeps any body-only
-  action with a blank avatar face — a migration may lose an assignment, never
-  artwork. `actionKey`/`takeKey` are memoized per object (a WeakMap); every mutator
-  builds a fresh object, so a cached key can never describe edited pixels.
+  resolved object (`states.a === states.b`), and an unassigned state IS
+  `states.idle`; the memo key is the SELECTION, not the state name.
+- **The shape door is one function.**  `upgradeArtwork(input)` takes the baked v8
+  chunk (or a v9 document, which it returns unchanged) and produces a v9 `Artwork`;
+  `pairArtwork` folds the two crops' libraries into the one paired library, taking
+  the AVATAR crop as the authority (action order, `frameMs`/`ms`/offsets/name, and
+  the state assignment) and keeping any body-only action behind a blank avatar.
+  It is memoized by the input object (a WeakMap) so a re-read gives back the SAME
+  artwork identity the resolution caches are keyed on, and it shares row strings by
+  reference throughout — upgrading 15.6MB of artwork is a pass over 106 objects,
+  not a copy.
 
 ### Palette
 
 The generator collected every colour its selected frames use and quantised to at
 most 255 slots (`transparent` is slot 0, the two-character format's ceiling), so a
-built-in's palette is not hand-authored. A custom `palette` is a private dedup table:
-`applyPaint` appends a slot for a new brush colour and reuses an existing one, and the
-dock, the cards, the previews and the studio all read that one table. (Per-built-in
-colour overrides were dropped in v4: a built-in renders exactly as authored.)
+palette is not hand-authored. A palette belongs to the ARTWORK and is read
+everywhere (the dock, the cards, the previews, the row thumbnails) — nothing
+mutates it, and painting into it no longer exists.
 
 ---
 
-## Custom skins
+## The Workshop
 
-The Settings tab is **two things and one control above them**:
+The Settings tab is **three things**:
 
-    [状态 | 动作]        ← the only navigation
+    皮肤                    ← one card per built-in, a live portrait pinned by name
+    [状态 | 动作]           ← the only navigation
+    状态   the eleven states, and what each plays   (WRITES the assignment)
+    动作   the whole library, one action at a time  (only LOOKS)
+
+**皮肤.**  `SkinPicker` renders one card per `BUILTIN_NAMES` entry, each a
+`PetPreview` at `scale: 2` (the avatar at 2×). Selecting applies instantly:
+`activateSkin` writes `{ skin }` and the store re-resolves ACTIVE synchronously and
+broadcasts. A name we do not ship is ignored — the card list and the store agree on
+what exists.
 
 **状态 — a light list beside its edit.**
 
@@ -304,181 +304,94 @@ The Settings tab is **two things and one control above them**:
   and the state's picture is the right column's job.
 - The right column is the state's **edit** (`StateAssignments`): a compact header (an
   80px live picture at the most detailed face, the name, and what the state MEANS) and
-  then the one library as a checkbox per action, with the **search box, 全选 and 清空 on
+  then the library as a checkbox per action, with the **search box, 全选 and 清空 on
   ONE row** (they must not wrap: the box may shrink below its placeholder, and the ops
   are `flex:none`).  There is **no tick count** — "已勾选 1 个" says nothing the
   checkboxes do not; it appears only when the selection hits `MAX_TAKES`, which is
   news.  The list is DISPLAYED as two groups (this state's ticks
   first, then 其他动作, each in library order) while the STORED selection keeps library
   order, so a tick never re-orders the rotation; 全选 ADDS every action currently
-  LISTED.  There is no state dropdown and no per-row ✎: the list IS the selector, and
-  动作 has one way in.
-- **Every row carries its own preview, and pointing at one plays it.**  106 actions are
-  106 different animations, so a list of names is a list you cannot read: each row shows
-  the action's avatar at **1:1 (32px, an exact ratio)** — and while the pointer (or the
-  keyboard focus) is on a row, the HEADER plays THAT action live at the popup's size
-  (`takeId` pinned, `LIVE_ZOOM`), with `正在预览「…」` in place of the state's meaning.
-  A still is for finding it; the animation is for choosing it.
+  LISTED (capped at `MAX_TAKES`).
+- **Every row PLAYS its action, and pointing at one plays it big.**  106 actions are
+  106 different animations, so a list of names is a list you cannot read — and a still of
+  frame 0 is the least informative frame there is (a bob, a blink and a prop all arrive
+  later).  So the row's thumbnail is a live one-action player at **1:1** (`ActionThumb`,
+  a 40px box holding 32px of art, so the frame's own `dx`/`dy` is visible too) — and while
+  the pointer (or the keyboard focus) is on a row, the HEADER plays THAT action live at
+  the popup's size (`takeId` pinned, `LIVE_ZOOM`), with `正在预览「…」` in place of the
+  state's meaning.  A row is for finding it; the header is for judging it.
 - The two columns are 176px + 16px + the rest of the pane (~555px in practice, so the
   checklist keeps ~363px — a checkbox, a thumbnail, a name and a read-out).  They stack
   only below 480px.  The difference between the two lists is the POINT: the eleven
   STATES are one character eleven times (no picture), while the library is 106 DIFFERENT
   animations (each one pictured, and playable on hover).
 
-**动作 — the studio at full width, with ONE picker.**
+**动作 — the library, one action at a time, full width.**
 
-- `ActionCombo` is the whole library control: closed it reads out the action on the
-  board; focused it opens a filtered list whose every row is a thumbnail plus its
-  read-out; ↑/↓ move, Enter picks, Esc closes.  On 我的创作 its footer carries
-  批量删除 (the rows become checkboxes, and the search still scopes the selection).
-- **Why a dropdown and not a list column**: at ~555px a 216px library column leaves
-  the board ~325px — 2.5 CSS px per pixel of a 128 face.  A list you have to look at is
-  not worth a board you cannot draw on, and the studio already needed the width; the
-  dropdown costs none and is there while you are choosing.
-- The studio is otherwise unchanged: 动作 → 画布 → 帧 → 画笔 → 当前帧.  The 动作 field is
-  TWO lines — the picker alone, then the action's NAME beside 新建动作 / 删除动作.  The
-  NAME's flexible cell is its WRAPPER (`.status-pet-action-name-field`), not the input:
-  `.status-pet-num-field` is `flex:none` (sized by its content), so an input asking to
-  grow inside it stays at its intrinsic ~20-character width and clips a Chinese name.
-  The **头像 / 全身** switch is a
-  full-width row ON TOP of the canvas (`flex:1 1 100%`, so the board always starts on
-  its own line and the switch can never sit beside it), and the canvas carries NO
-  caption — the switch has just named the face.
-- **The live preview is a PICTURE and nothing else**: no caption, no numbers, no link
-  (the picker's rows already say who plays what, and a 状态 cell is one click away), and
-  it is displayed at `LIVE_ZOOM` — 80 CSS px, the popup's own 1:2 size.  That is what
-  lets the board and the preview keep ONE row at every real pane width.
-- **Every skin gets the SAME 动作 view — and a built-in's is a VIEWER.**  A built-in's
-  page is the studio's own components — same picker, same board, same filmstrip —
-  because a second, read-only layout is how the two views drifted apart.  What differs is
-  what may be WRITTEN: a built-in's writing controls are absent (its action ops 新建 /
-  名称 / 删除 / 批量删除, 复制一帧 / 空白帧 / 删除帧, the 画笔 box, 当前帧's 时长 and
-  整幅挪动, the 128 draft buttons), the board is a PICTURE
-  (`editable === false` gates every mutator, `status-pet-board-readonly` drops the
-  crosshair), and the picker / the face switch / the filmstrip stay — those are how you
-  LOOK at a frozen library.  Nothing here writes and **nothing here forks**: an earlier
-  build copied the whole 15 MB artwork into 我的创作 on the FIRST EDIT, which made a
-  stray click on the board an irreversible copy plus a skin switch.  The one door into
-  drawing is the 我的创作 card in the skin picker, which seeds itself from the active
-  skin (the whole library, both faces and the state assignments).
-
-The old page was a 2×2 matrix — 预览 / 编辑 tabs each with their own 按状态 / 按动作
-switch — plus a 32 / 128 switch on the navigation row, a per-tile corner ✎ as the only
-way into the editor, and a search box in front of everything.  What survived the
-rewrites is the part that was never the problem: the eleven states ARE a list, the
-library is one dropdown, and looking at something is the ordinary way to change it.
+- `ActionViewer` shows the skin's whole animation library with ONE action on the
+  board, and it is a **VIEWER**: the pixels are authored, so nothing here writes
+  and nothing here copies.
+- The **picker** (`ActionCombo`) is the only control that changes what you see:
+  closed it reads out the action on the board, focused it opens a filtered list
+  where every row is a PLAYING thumbnail (`ActionThumb`, same ticker as the pet)
+  plus its read-out (`{n} 帧 · 被 N 个状态在用`), ↑/↓ move the highlight, Enter
+  picks, Esc closes.
+- **画布** is the face switch (头像 / 全身 — a full-width row ON TOP of the
+  board, so the board always starts on its own line) and then the board beside
+  the action's own live preview at the popup's display size (`LIVE_ZOOM`).  The
+  board draws the artwork 1:1 and is a PICTURE: `grid × grid` plain cells
+  carrying a colour and **no pointer handler at all**, so a stray click cannot
+  start a stroke on a frozen library.  (`status-pet-board-readonly` is the class
+  that says so; it exists so the cursor rule has something to hang from.)
+- **帧** is that action's filmstrip: a still per frame, which SELECTS one.
+  Looking at a frame in order is how an animation is read — there is no frame
+  CRUD.
+- **The writing controls are absent BY CONSTRUCTION, not behind a flag**:
+  `action-viewer.ts` simply does not render 新建动作 / 删除动作 / 批量删除,
+  复制一帧 / 空白帧 / 删除帧, the 画笔 box, 当前帧's numbers (时长 / 整幅挪动 /
+  装饰) or the 128 draft buttons.  A built-in has no `editable` switch to get
+  wrong, and the studio that had one no longer exists.
+- The stage is a **grid**: one column, two from 380px of PANE up (an `@container`
+  query on `.status-pet-studio`), because the preview is only 80px wide — so the
+  pair makes ONE row at every real pane width.
+- **The 动作 view is where an action is chosen; the 状态 view is where it is
+  assigned.**  They are the two halves of one axis and neither duplicates the
+  other: 动作 has no checkboxes, and 状态 has no board.
 
 Invariants:
 
-- **A built-in may be re-ASSIGNED — its 动作 page only LOOKS.**  Both views render the
-  same components for every skin; what differs is that a built-in's writing controls are
-  absent and its board is a picture.  Its assignment is stored as a DIFF beside the skin
-  (`saveSkinStates` → `builtinStates`, one flat `{state: ids}` table), so the built-in
-  keeps its pixels and a state nobody touched keeps following the artwork.  Pixels move to
-  我的创作 only when the user PICKS that skin, whose slot seeds itself from the active one;
-  no studio control copies anything, and **nothing forks** (an earlier build forked to
-  我的创作 on the first stroke — a stray click on the board, which made the page seem to
-  edit one thing and save another, and cost a 15 MB copy plus a skin switch).
+- **The assignment is a DIFF beside the frozen artwork.**  `saveSkinStates` writes
+  `builtinStates: { 'whale-chan': { tool: ['xie-daima'] } }` — one flat `{state: ids}`
+  table.  An ABSENT state key means "no opinion, use the authored assignment" (so a
+  later artwork update still moves the states the user never touched), while a
+  PRESENT-BUT-EMPTY list means "this state deliberately plays nothing, it follows
+  idle".  A diff that ends where it started is not written at all, and an empty table
+  is dropped rather than stored.
+- **The diff is the only untrusted input the renderer can see**, and
+  `withOverrides` is where it is sanitized: unknown states are ignored, ids the
+  library does not carry are dropped, duplicates collapse, the list is capped at
+  `MAX_TAKES`, and `idle` falls back to the authored assignment rather than being left
+  empty.  A corrupt store must never blank the pet.
 - **`idle` can never be emptied — but 清空 still works on it.**  It is the anchor every
-  unassigned state falls back to, and validation/resolution require it to play
-  something, so an emptied idle would invalidate the document and blank the pet.
-  清空 on 空闲 clears down to its FIRST action — and because that rule applies to ONE of
-  eleven states, it is **asked for** (`clearIdleTitle` + the same `clearIdleHint` copy in
-  a confirm card) instead of being printed on every visit; every other state clears to
-  empty at once, because an empty selection IS the idle fallback.  The button keeps the
-  rule as its `title`.
-- **There is exactly ONE door per object.**  The state list selects the state; the studio's
-  picker selects the action.  There is no per-row ✎, no second selector and no link back
-  from the preview: `page.ts` owns
-  both selections (`state`, `action`), so the two views can never disagree about what is in
-  front of you, and the studio reports its own selection changes back through
-  `onActionChange`.
-- **The library is a small curated set of slots**: 新建动作, 删除, 批量删除. The picker
-  lists this artwork's own actions — each row a thumbnail plus its read-out — and
-  selecting one only moves the board onto it. There is no 导入动作 (an action is filled by
-  DRAWING it), no 复制动作 and no bulk import: the library stays a set of slots you curate
-  by hand.
-- **Deleting is guarded, singly and in bulk.**  Both surfaces (the studio's ✕ and
-  删除选中) refuse the two deletions that would invalidate the document: the last action
-  in the library, and the only action a crop's `idle` plays (an invalid document is
-  dropped on the next read — losing a whole drawing to a stray click). `removalIsBlocked`
-  is shared: the button DISABLES on it and the mutator REFUSES on it.
-- **There is no persistence ceremony in the UI.**  `serializeArtwork` /
-  `parseArtworkExport` still round-trip a whole document as JSON, but they are the
-  embedder's API (`skinTools`) now: the studio writes every edit through `saveStored` on
-  the spot, and the 导入 / 导出 JSON fold is gone.
-
-Studio mechanics:
-
-- **The board is a SQUARE that can only ever be as large as its column** —
-  `min(100%, 52vh, 512px)`, `aspect-ratio:1`, cells `flex:1 1 0` — so the 128×128 face is
-  complete at any pane width and never scrolls, while the 32×32 gets larger cells.
-- **No wrapped-flex trap**: an earlier main row laid out as wrapping flex sized its first
-  column by max-content, which put a blank block beside the state list and the canvas
-  BELOW it. There is no second column to fall into that now.
-- **Container-responsive, not viewport-responsive**: `.status-pet-studio` is a
-  `container-type:inline-size` container, so regions follow the *settings pane*; the
-  stage goes two-column at **≥380px** — board + the preview's 80px, with the board
-  column CAPPED at 512 and the pair centred, so a wide pane does not leave the preview
-  stranded at the far edge — and only below that does the preview drop under the board.
-  Two earlier thresholds (700px, then 460px) both left it stacked at real pane widths,
-  which cost a screenful for nothing; 80px of preview is what makes one row safe.
-  (`display:grid` on `.status-pet-stage` is load-bearing: an `@container` override
-  cannot lay out a block.)
-- **The 状态 list is 176px, and the two columns stack only below 480px.** The pane is
+  unassigned state falls back to, and resolution requires it to play something.  清空 on
+  空闲 clears down to its FIRST action — and because that rule applies to ONE of eleven
+  states, it is **asked for** (`clearIdleTitle` + `clearIdleHint` in a confirm card)
+  instead of being printed on every visit; every other state clears to empty at once,
+  because an empty selection IS the idle fallback.  The button keeps the rule as its
+  `title`.
+- **There is exactly ONE door per selection.**  `page.ts` owns both the state (for 状态)
+  and the action (for 动作), and hands them down; each surface owns nothing but its own
+  rows.  There is no state dropdown, no per-row ✎ and no second picker — the master list
+  IS the selector, and the viewer's picker IS the way to another action.
+- **The state list is 176px, and the two columns stack only below 480px.**  The pane is
   ~555 CSS px wide in practice (measured off a full-dialog screenshot), so 176 + 16 +
   ~363 is the split that fits; an earlier build used 216px with a 700px stacking
   threshold and ended up as two full-width blocks.  The list is LIGHT on purpose — no
   border box, no search, no 90px cards — because that weight, not the two-column idea,
   was what looked wrong.
-- **The preview is the preview, and the frame's numbers live with the frames**: the
-  action's live preview sits in its own stage cell — always PINNED to `takeId`, so there
-  is no shuffle toggle (the state rotation belongs to the pet) — while 时长 and
-  整幅挪动 live in 当前帧, under the filmstrip they describe.  The 头像 / 全身 row sits
-  above all of it, never on the page's axis.  The preview carries no caption and is not
-  clickable: it shows, and that is all.
-- **The animation story is: draw a frame → duplicate it → nudge it.**  The filmstrip
-  leads with `⧉ 复制一帧` (clone, insert after, select the copy) and `+ 空白帧`, and
-  `× 删除此帧` joins them as soon as there is a frame to delete: the three ops are ONE
-  group (`.status-pet-frame-ops`) that rides the filmstrip and stays together wherever
-  the strip wraps — left-aligned with the thumbnails, never floated right and never a
-  row of its own.  There is no frame
-  reorder and no frame clipboard any more — the filmstrip selects, 复制一帧 copies.
-- **整幅挪动 is a LABELLED row of 当前帧**, and there is exactly ONE move control: a
-  direction pad writing the frame's
-  `dx`/`dy` (avatar units, clamped to `GRIDS[AVATAR_GRID].maxOffset`; the body face
-  renders them ×4) at draw time with the pixels untouched — one press is the same hop
-  on both faces.  Label and pad share one row (name on the left, pad in the value column
-  like the two number rows above) so the field lines up instead of the pad floating under
-  the numbers.
-  The label carries the read-out (`整幅挪动 ↓1`) and 归零 appears while moved. The
-  destructive sibling `shiftRows` (moves the drawn pixels, drops what falls off the
-  edge) is deliberately NOT in the UI — two near-identical "move" controls made the studio
-  unreadable — and stays in the store for a future board-level affordance.
-- **The studio SESSION keeps your PLACE, not a history.**  It is a module keyed by the
-  ARTWORK IDENTITY (`pixel-editor.ts`), holding the action and the frame you were on: the
-  page swaps the studio for the 状态 view, and "look at the states, then tick what I just
-  drew" must not send you back to the top of the library.  A remount of the same document
-  resumes it; ANY other write (the picker's 批量删除, another skin) produces a new document
-  object and drops it — a position in a document nobody has is worse than none. `hold()`
-  syncs the session at WRITE time, not on the next render.  **There is no undo/redo**:
-  the 撤销 / 重做 buttons, the ⌘/Ctrl+Z handler and the snapshot stack are gone.  Renaming
-  is likewise not a history entry — the name field is uncontrolled and commits on blur.
-- **The 128 face is optional, PER ACTION.** With no body face the board shows an
-  empty-state card offering a 4× draft (this action, or every action at once) or a blank
-  grid. A draft is `upscaleCell` of the avatar face, and within one action
-  复制一帧 / 空白帧 carry the body face along — the action is never left half-bodied.
-  There is no button that drops an existing 128 face again.
-- **Every mutator reads `artRef` at call time**, so rapid clicks and drag strokes never
-  lose work; drag-painting requires a held button; right-click is the eyedropper.
-- **The brushes ARE the paint box**: six native colour-picker wells — click one to paint
-  with it, click it again to recolour — plus the `×` eraser. No add, no reset, because a
-  brush is not a palette slot: `applyPaint` looks the colour up in the artwork's palette
-  (appending at most one slot) and writes that slot into the pixels, so a brush edit can
-  never repaint the board. The box lives in `brushes` in the store, so it survives a
-  reload.
-- The helpers and the editor components are exposed as `skinTools` on the loader return
-  value; the bundle smoke test drives them. The host ignores the extra field.
+- **The library is a SCROLL REGION.**  106 rows as a plain column made the card several
+  screens tall and pushed 全选 out of reach: it is `max-height: min(44vh, 360px)` with
+  `overflow: auto`, so the search line above it stays put while the rows move under it.
 
 ### Storage — localStorage
 
@@ -486,72 +399,59 @@ A loader plugin cannot declare a Cordis `Config`, so state lives in
 `localStorage["status-pet:skin"]`:
 
 ```jsonc
-{ "v": 9,                       // schema version — see migrate below
-  "skin": "whale-chan" | "custom",
-  "brushes": ["#rrggbb", …6…],  // the paint box (UI state)
-  "builtinStates": { "whale-chan": { "tool": ["xie-daima"] } },
+{ "v": 10,                      // schema version — see migrate below
+  "skin": "whale-chan",
+  "builtinStates": { "whale-chan": { "tool": ["xie-daima"] } } }
                                 // per-built-in state-assignment DIFF, ONE flat
                                 // table (absent = authored; []=follow idle)
-  "custom": { "palette": ["transparent", …up to 255 colours…],
-              "actions": [ { "id": "chi-niangao", "name": "吃年糕",
-                             "origin": "chi-niangao", "frameMs": 550,
-                             "frames": [ { "ms"?: 400, "dx"?: 0, "dy"?: 0,
-                                           "cells": { "32": { "rows": [32行] },
-                                                      "128"?: { "rows": [128行] } } } ] } ],
-              // ONE state table for both faces; absent key = follow idle
-              "states":  { "idle": ["chi-niangao"] } }
 ```
+
+That is ALL of it.  The artwork is authored data and is never stored: it ships as its
+own lazily-loaded chunk.  What the user owns is a handful of ids, so the payload is a
+few hundred bytes.
 
 Rules to keep:
 
-- **Every read goes through validation, and validation is MEMOIZED BY IDENTITY.**
-  `validateArtwork` requires a non-empty `idle` assignment and legal shapes everywhere:
-  full-grid rows (NO symmetry requirement), ≤8 frames, ≤`MAX_LIBRARY` actions, ≤`MAX_TAKES`
-  per state, unique ids, **every id a state names must exist** and none twice, offsets
-  inside the AVATAR headroom, ms in range, props rectangular/in-grid/palette-legal,
-  `cells[32]` present with `cells[128]` optional but correctly sized, and a palette of
-  transparency + 1–255 colours every painted pixel names. The scan is allocation-free (one
-  fused pass per row through a nibble table), and `artworkErrors` is keyed by the DOCUMENT
-  and built from per-ACTION verdicts, so a stroke re-checks the one action it rewrote and
-  re-uses the other 105. A full 15 MB document is ~21 ms the first time and free
-  afterwards. Any inconsistency makes resolution fall back — a corrupt store must never
-  blank the pet.
-- **An older document is UPGRADED, not dropped.**  `migrate` keeps the skin choice
-  and the paint box (both version-independent), flattens a v8 per-crop
-  `builtinStates` diff into the v9 one (the avatar crop's diff wins — it is the face
-  that is always required), and runs the artwork through `convertArtwork` /
-  `upgradeArtwork`: a v8 document (one library per crop) is PAIRED, a v7 one (a
-  `states` value holding take OBJECTS rather than ids) goes through the library door
-  first, and anything older than v7, or from a NEWER version, is dropped so the pet
-  falls back instead of half-reading it.
-- **The document lives in memory; localStorage is a snapshot.**  `loadStored` serves
-  the in-memory document (memoized by the raw text while clean or while a write is
-  pending) and re-reads storage otherwise, so an external writer is noticed;
-  `saveStored` merges, re-resolves ACTIVE and broadcasts SYNCHRONOUSLY, and
-  `storage.ts` decides when the snapshot goes out: **small payloads write through** (a
-  skin choice, the paint box, an assignment diff), **large ones are COALESCED** (one
-  serialization per editing burst, forced out after a short idle, hard-capped, flushed
-  on `pagehide`/hidden tab). A refused write (quota, private mode) drops the in-memory
-  document so the next read re-parses what storage holds instead of serving a lie.
-  `flushStored()` forces it out; the suite's resets go through it.
+- **The diff is the only thing stored that the renderer did not author**, and
+  `withOverrides` (documents.ts) is the only place it becomes a state table — unknown
+  states ignored, ids the library does not carry dropped, duplicates collapsed,
+  capped at `MAX_TAKES`, `idle` never left empty.  `validateArtwork` (validate.ts) is a
+  separate, TEST-ONLY check of the authored chunk: nothing validates on a hot path any
+  more, because nothing untrusted reaches the renderer.
+- **An older payload is MIGRATED, not dropped.**  `migrate` keeps the skin choice
+  (version-independent), flattens a v8 per-crop `builtinStates` diff into the flat one
+  (the avatar crop's diff wins — it is the face that is always required), and DROPS the
+  keys the customisation build wrote (`custom`, `brushes`): a build that cannot render
+  those pixels has no meaning for them.  A payload from a NEWER version keeps the skin
+  choice and nothing else.  Anything that is not a JSON object is dropped.
+- **A stale skin name falls back.**  `storedName` resolves any name that is not a
+  `BUILTIN_NAMES` entry (an old `'custom'`, a hand-edited store) to the default skin —
+  the pet lights up instead of blanking.
+- **Memory is a memo, storage is the truth.**  `loadStored` parses once per raw TEXT,
+  so a write of ours (or another tab's) is noticed exactly once, and a `storage` event
+  re-resolves ACTIVE and re-broadcasts.  `saveStored` merges, writes through
+  SYNCHRONOUSLY (the payload is tiny — there is no coalescing window, no flush timer,
+  nothing to lose on `pagehide`), then re-resolves ACTIVE and notifies.  A REFUSED
+  write (quota, private mode) drops the in-memory document so the next read re-parses
+  what storage actually holds instead of serving a lie.
 - **Resolution is lazy and cached BY ARTWORK IDENTITY.**  A skin resolves states on
-  first access (an unassigned state IS the idle object, and two states with the same
-  selection share one object — the memo key is the SELECTION, not the state name),
-  and every resolution is memoized on the `Artwork` object itself. Artwork is
-  immutable, so a write that changed the document resolves through a new object
-  while a write that did not is served from the memo — which is why
-  `refreshActiveSkin` no longer clears anything. Faces are parsed through
-  `spriteFor`, memoized per CELL object (and the 4× body draft per frame+face), so an
-  untouched face keeps its `Sprite` and therefore its pre-rendered bitmap — painting
-  the head never re-rasterises the body.
+  first access (a state that plays nothing follows idle BY IDENTITY, and two states
+  with the same selection share one object — the memo key is the SELECTION, not the
+  state name), and every resolution is memoized on the `Artwork` object itself.  The
+  artwork is immutable and `withOverrides` shares the action library by reference, so a
+  write that re-points a state resolves a new skin through the SAME action objects —
+  and every sprite, and therefore every pre-rendered bitmap, survives it.  Faces are
+  parsed through `spriteFor`, memoized per CELL object (and the 4× body draft per
+  frame+face).
 - **The store owns ACTIVE — broadcast is notification only.**  `saveStored`
   re-resolves the module-level `ACTIVE` synchronously on every write, then dispatches
   `status-pet:skin-changed`; a module-level `storage` listener does the same for
-  other tabs. `onSkinChange` is only for components holding their own resolved copy
+  other tabs.  `onSkinChange` is only for components holding their own resolved copy
   or selection state.
-- **The custom slot is never blank** — selecting it with no data seeds it from the
-  active skin's WHOLE library (ids, names, provenance and state assignments
-  included), so 我的创作 starts as a working copy rather than an empty page.
+- **A write that changes nothing is not a write.**  `saveSkinStates` compares the
+  resulting table with the stored one and returns early, so re-ticking an action or
+  clearing a state that was already following idle costs no serialization, no
+  re-resolve and no broadcast.
 
 ---
 
@@ -590,8 +490,8 @@ const REACTIONS = { petted:{ durationMs:900 }, woken:{ durationMs:1200 } };
 Motion is **artwork**, not config: the system owns only the vocabulary (`STATE_NAMES` =
 9 states + 2 reactions), the pill accent on the dock seat, and reaction durations.
 Adding a state means a `STATES` entry, a label in both locales, a `derivePetState`
-branch, and artwork (custom skins: drawable in the studio and ticked onto the new state;
-a built-in would need `src/artwork.gen.ts` hand-edited).
+branch, and artwork: an action in `src/artwork.gen.ts` (both crops), ticked onto the new
+state in the state list.
 
 ### Interactions
 
@@ -679,24 +579,27 @@ The sizing rule is **integer ratios only**, read at two stages:
 
 - **The rendered face (1:1).**  `GRIDS` is the size the artwork is DRAWN at: one sprite
   pixel per canvas pixel, plus the headroom above, and a face with no 128px block is
-  drawn from its own avatar at 4× (128 = 32 × 4). The studio BOARD stays 1:1 (you are
-  judging a pixel you just placed); the skin cards show the avatar at 2× (an 80px
-  canvas) and every list row an avatar at 1× (32px) — `ROW_THUMB_CSS` is 32 because that
-  is the one size that is an EXACT ratio of both crops (32 → 1:1, 128 → 1:4), so a row
-  stays crisp at either face.  The eleven-row STATE list carries no picture at all: that
-  is one face eleven times, and its picture is the header's.
+  drawn from its own avatar at 4× (128 = 32 × 4). The skin cards show the avatar at 2×
+  (an 80px canvas); a library row plays its action at **1:1** — `ActionThumb` renders the
+  avatar crop at `scale: 1`, which is a 40 CSS px box around 32 px of art, and that
+  headroom is deliberate: a frame's `dx`/`dy` needs it, so a bob is visible in the row
+  instead of clipped.  The eleven-row STATE list carries no picture at all: that is one
+  face eleven times, and its picture is the header's.  The 动作 board draws the artwork
+  at 1:1 too (the same authored size), with its live preview beside it at `LIVE_ZOOM`.
 - **The live layers (rendered 1:1, displayed at `LIVE_ZOOM = 1/2`).**  The dock and the
   popup render into a 40×40 / 160×160 backing store and set the **CSS box** to half that
   (20 / 80) — **16 CSS px of avatar art**, **64 CSS px of body art**. `LIVE_ZOOM` is an
   exact 1:2 against an artwork that is an exact 2× fill of its crops, so `pixelated` maps
   one destination pixel to one source pixel. The sprite is **never re-rendered smaller**:
   `startLoop` scales only `canvas.style.width/height` (`PetPreview` takes the same `zoom`
-  prop, default 1 — which the studio's board-side preview relies on). `DockPopup` and
-  `DockPet` pass `LIVE_ZOOM`; the Workshop's studio board is 1:1, the picker's rows carry
-  1:1 avatars, and the state's header picture is the popup's `LIVE_ZOOM`.
+  prop, default 1). `DockPopup` and `DockPet` pass `LIVE_ZOOM`; the skin cards pass
+  `scale: 2`, the library rows play at 1:1, and the state's header picture is the popup's
+  `LIVE_ZOOM`.
 
-Filmstrip thumbnails are unchanged: `THUMB_CSS` = 64 on screen, canvas backing one
-pixel per grid pixel (32 → 2× up, 128 → 2:1 down), both exact.
+A filmstrip still (`FrameCanvas`, `THUMB_CSS` = 64 on screen) backs one pixel per grid
+pixel (32 → 2× up, 128 → 2:1 down) — both exact.  It is the one place a still is RIGHT: a
+filmstrip thumbnail stands for exactly one frame, and stepping through them is how an
+animation is read.
 
 ### The player
 
@@ -738,9 +641,17 @@ instant its cycle started — and the click popup FOLLOWS, drawing the leader's 
 AND phase whenever it is showing the same state of the same skin (otherwise, or when
 the leader has been silent for 250 ms, it rolls its own). The paired model already
 guarantees the two faces resolve the same action SET; the channel is what stops the
-PLAYER rolling a different one, and it also fixes the phase. Galleries and the editor
-stay free (the editor pins one take via `takePinRef`), so previews never synchronise
-with the dock.
+PLAYER rolling a different one, and it also fixes the phase. A pinned preview (a skin
+card, the state's header) is free, so previews never synchronise with the dock.
+
+**Many small players are cheap, because a tick that changes nothing draws nothing.**
+Every library row is a live player (`ActionThumb`), so the checklist alone can hold 106
+of them and the picker's open list another 106 — measured, that is **0.016 ms per rAF
+tick for 212 players, ~0.1% of a 60fps frame**: the shared ticker does the rotation
+arithmetic and the frame walk, then the sprite-identity dirty check returns before any
+canvas work, and only the rows whose frame actually changed (every 400 ms) touch a
+pre-rendered 40×40 bitmap. Reduced motion freezes them on their first frame, a hidden
+tab stops the ticker, and unmounting returns the player to the pool.
 
 The whole-frame offset lives on the RESOLVED FRAME (`dx`/`dy`, already multiplied by
 `offsetScale(grid)`), not on the sprite: that is what makes one `整幅挪动` the same
@@ -803,9 +714,9 @@ renamed token — or an engine without `color-mix` — degrades to an untinted p
 const NS = 'status-pet';
 return {
   inject: ['slots', 'locale'],
-  // Exposed for the bundle smoke test and embedders: the pure skin helpers plus
-  // the customisation components.  The host ignores unknown fields.
-  skinTools: { /* the store's public surface + ui: { SkinPicker, PixelEditor, PetPreview } */ },
+  // Exposed for the bundle smoke test and embedders: the store's public surface
+  // plus the components.  The host ignores unknown fields.
+  skinTools: { /* the store's public surface + ui: { SkinPicker, ActionViewer, PetPreview } */ },
   apply(ctx) {
     ctx.effect(() => ctx.locale.register(NS, LABELS));   // unloading removes it
     const t = ctx.locale.bind(NS);                       // serves the label thunk
@@ -866,19 +777,23 @@ reload.
 
 ### Performance harness — `pnpm bench`
 
-`bench/store.mjs` runs the store/editing hot paths against the REAL modules
-(type-stripped by node, localStorage stubbed) and prints wall-clock times: the first look
-at a 15 MB document, one paint stroke, a 100-stroke drag (and how many writes it cost), a
-skin switch, the library read-outs. `bench/board.mjs` prices the JS half of building the
-DOM board, and `bench/harness.mjs` stubs `window` and times a run. Run it before and after
-touching the store, the resolution caches or the draw path — this file's numbers come from
-it.
+`bench/store.mjs` runs the store hot paths against the REAL modules (type-stripped by
+node, localStorage stubbed) and prints wall-clock times: the chunk landing + first
+resolve, a cold and a warm resolve, the assignment list's 106 pinned previews, one state
+tick (assign + persist + re-resolve + broadcast), a burst of ticks and what it costs
+localStorage in bytes, a skin switch, and the row read-outs. `bench/harness.mjs` stubs
+`window` and times a run. Run it before and after touching the store, the resolution
+caches or the draw path — this file's numbers come from it.
+
+It used to price a 15 MB document load, a painted pixel and a coalesced snapshot. Those
+paths are gone with the customisation pipeline, which is exactly why the numbers here are
+now tens of MICROseconds and a burst of 40 ticks costs ~11 KB of storage in total.
 
 ### Adding / changing artwork (built-in)
 
-See *Artwork → Where the pixels live* for the three paths (custom skin; hand-edit
+See *Artwork → Where the pixels live* for the two paths (hand-edit
 `src/artwork.gen.ts`; restore `assets/` + `tools/` from `git log` and re-run the
-generator). A genuine fix to a built-in action is path 2: keep the provenance
+generator). A genuine fix to a built-in action is path 1: keep the provenance
 comment above the entry truthful, edit THAT ACTION IN BOTH CROPS (same id, same
 `frameMs`, same frame count, same offsets — the pairing door trusts the avatar crop
 and would otherwise pair a stale body), then `pnpm build` and reload. `pnpm test`
@@ -940,14 +855,14 @@ hand-driven clock).
 |---|---|
 | `behavior.test.ts` | the nine-state truth table, all three error paths, the send echo → `think`, `preparing` → `stream`, the sleep boundary (59999 → idle / 60001 → sleep), priority order, and tool-name interpolation (a `phase: 'start'` call names itself via `toolNamed`'s `{name}`; a nameless call keeps the generic `tool` label) |
 | `labels.test.ts` | dictionary shape, locale fallback |
-| `skins.test.ts` | the PAIRED built-in: validation through the store's own validator, both faces present and correctly sized, the shared frame count / pace / `ms` / offsets, no clipping at EITHER face, both crops' libraries identical and in the same order (the pairing guarantee starts here) |
-| `skin-store.test.ts` | validation on every read (caps, offsets/ms, props, palette, `cells[32]` required and `cells[128]` sized, mandatory `idle`, unique ids, references resolve); BOTH upgrade doors (v7 → library, v8 → paired, lossless — the baked chunk included); the library ops (reference vs copy, dedupe, collision suffixing, removal stripping references, `replaceFrameCell`); the paint primitives; export/import; the paint box; resolution fallbacks and identity sharing; the 4× body fallback and the ×4 offset; load/save and broadcast |
-| `performance.test.ts` | the hot-path contracts: reference-stable edits (the other FACE included), memoized validation/resolution/derived face, one snapshot per edit burst, `usedBy` as an index |
+| `skins.test.ts` | the PAIRED built-in through `validateArtwork`: both faces present and correctly sized, the shared frame count / pace / `ms` / offsets, no clipping at EITHER face, both crops' libraries identical and in the same order (the pairing guarantee starts here), every action named and traceable, the palette covering every painted pixel |
+| `skin-store.test.ts` | the pairing door (v8 → v9, the avatar crop's authority, body-only actions kept, rows shared by reference, the door memoized); the assignment DIFF (no-op diffs not stored, `idle` never emptied, unknown skins ignored) and its sanitizing (`withOverrides` dropping unknown ids/states, deduping, capping); `assignTake`/`setStateSelection`/`usedBy`/`libraryInfo`; resolution fallbacks (unknown skin name → default, no-body → 4× avatar) and identity sharing; the migration (v9 → v10 dropping `custom`/`brushes`, v8 per-crop diffs, newer payloads, corrupt ones); the pixel format; grid/state invariants |
+| `performance.test.ts` | the hot-path contracts: resolution memoized by artwork identity, the derived 128 face memoized per (frame, face), the assignment sharing the library BY REFERENCE, one write-through snapshot per tick — and the assertion that the payload never contains artwork |
 | `take-rotation.test.ts` | the pure hold policy under a seeded random |
-| `loop.test.ts` | the real player: held takes, an immediate switch at frame 0, pinned takes, flapping states, the offset read from the resolved FRAME, and the TAKE CHANNEL (a follower draws the leader's exact frame; a different state or a dead leader rolls its own) |
+| `loop.test.ts` | the real player: held takes, an immediate switch at frame 0, flapping states, the offset read from the resolved FRAME, and the TAKE CHANNEL (a follower draws the leader's exact frame; a different state or a dead leader rolls its own) |
 | `draw.test.ts` | the ImageData rasterizer: colour packing, transparency, the scaled scratch-canvas path, the palette table |
 | `bundle.test.ts` | the built `client.js` under a stubbed loader |
-| `ui.test.ts` | registration (one dock entry, **no `settings.general.item` row**, the settings entry, label thunk); the Workshop (ONE axis and no tab row; the 状态 view as two columns with eleven ONE-LINE rows (name + read-out, no picture, reactions in their own group, **no search**) beside an edit surface whose header names the state once, at the most detailed face, with the search box, 全选 and 清空 on ONE line (never wrapped, and no tick count unless the cap is hit), each row carrying its own 1:1 thumbnail and the header playing the hovered action live; the 动作 view at full width with a comboBOX picker: it reads out the board when closed, lists every action with a preview when focused, filters as you type, and Enter picks; its footer does 批量删除 behind a confirm; a built-in's 动作 view is the SAME studio with EVERY writing control absent — no action ops, no frame CRUD, no 画笔 box, no 当前帧 numbers — its board a read-only picture, and no copy button or fork of any kind; and the assertion that no corner ✎ survives anywhere); the assignment surface (a tick writes a REFERENCE, search scopes 全选, 清空 stops at one action on 空闲, a built-in stores a flat DIFF and never forks, a dangling id is dropped); the studio (selection/fallback, the session surviving a remount with its frame, shared-action re-resolution, free painting with no lost strokes, 新建/删除动作, the 动作 row as two explicit lines with no 导入动作 / 移除 128 面, frame CRUD with 删除此帧 as the only list op left, duplicate → one 整幅挪动 ↑ gives `dy: -1` with the pixels untouched → 归零, the per-action 128 draft + 为所有动作生成草稿, and no undo/redo or JSON fold); the FACE switch on the canvas row and NOT on the axis; interactions end to end; the popup (open/close, `aria-haspopup`/`aria-expanded`, tooltip disabled, panel-wide petting); the paint box (twenty colours → twenty palette slots); registry/locale integrity; the layout invariants |
+| `ui.test.ts` | registration (one dock entry, **no `settings.general.item` row**, the settings entry, label thunk); the Workshop (skin cards, ONE axis and no tab row; the 状态 view as two columns with eleven ONE-LINE rows (name + read-out, no picture, reactions in their own group, **no search**) beside an edit surface whose header names the state once, at the most detailed face, with the search box, 全选 and 清空 on ONE line, each row a live 1:1 thumbnail pinned to ITS action (a one-action skin whose playhead advances) and the header playing the hovered action live; **the 动作 view as a VIEWER** — the picker opens with a thumbnail and a read-out per row, filters as you type and Enter picks, the face switch sits on the canvas row and nowhere else, a board cell carries its colour and NO handler, the preview is pinned to the action on the board at `LIVE_ZOOM`, the filmstrip selects a frame, and every writing control is absent); the assignment surface on the REAL 106-action library (a tick writes a REFERENCE and lands in the stored diff, 全选 reaches exactly `MAX_TAKES` and announces the cap, 清空 stores a present-but-empty list so the state follows idle, and 清空 on 空闲 asks for confirmation and keeps one action); the live sizes (dock 16px of avatar, popup 64px of body); the stylesheet (balanced, the two columns, the stage GRID and its container query, the scroll region — and the writing controls' rules absent); interactions end to end; the popup (open/close, `aria-haspopup`/`aria-expanded`, tooltip disabled, panel-wide petting); registry/locale integrity |
 
 **Four traps the React stub has already fallen into — do not reintroduce them:** the
 component closes over the React instance passed to `factory(require)`, so the stub must be
@@ -957,11 +872,13 @@ test's `reaction` leaks into the next and the locale assertions fail for the wro
 reason); the `useState` stub must run **lazy initializers** (the editors seed state
 with `useState(() => …)`, and storing the function verbatim makes every editor test fail
 in confusing ways); and a NESTED component is an unreduced ELEMENT in the tree — the stub
-does not render children components, so a page test reads `StateAssignments` / `PixelEditor`
-output through the `expand()` helper (`el.type(el.props)`), which starts at the page's own
-hook count and therefore leaves the page's state alone (the same move the popup tests
-make). `findDeep` does not flatten children arrays either; use `findAllDeep` for anything
-rendered inside a `map`.
+does not render children components, so a page test reads `StateAssignments`,
+`ActionViewer` and `ActionCombo` output through the `expand()` helper
+(`el.type(el.props)`), which starts at the page's own hook count and therefore leaves the
+page's state alone (the same move the popup tests make).  `findDeep` does not flatten
+children arrays either — use `findAllDeep` for anything rendered inside a `map`, and
+expand the nested component at the SAME hook base every call or its own state moves under
+it.
 
 ### What the suite cannot verify
 
@@ -987,34 +904,30 @@ Run through this after a change that touches appearance or layout:
    after ~60 s idle. A tool approval pulses the pill. Reduced motion: no bob, no pulse,
    no jump. Hidden tab: the loop stops. Idle for a minute: each take plays 3–5 whole
    loops (6–11 s) before another is rolled — no flicker every couple of seconds.
-4. In DSH Settings, the "状态宠物" tab shows the skin cards (drawn at 2×, with a badge on
-   我的创作 — it is a COPY of a built-in, so the two cards show the same face), then ONE
-   axis — 状态 / 动作 — and NO tab row. 状态 opens first, as TWO columns at the
+4. In DSH Settings, the "状态宠物" tab shows the skin cards (each a live portrait at 2×),
+   then ONE axis — 状态 / 动作 — and NO tab row. 状态 opens first, as TWO columns at the
    pane's real width: eleven LIGHT one-line rows on the left (name + what it plays; no
-   picture, no search box, no bordered panel, the reactions under a 反应 caption) and the state's
-   edit on the right (one 80px live picture + name + meaning, then the checklist, whose
-   rows each show the action and whose header plays the one you point at). Click a row
-   and the right half follows it. There must be no second 「状态」 heading, no state
+   picture, no search box, no bordered panel, the reactions under a 反应 caption) and the
+   state's edit on the right (one 80px live picture + name + meaning, then the checklist,
+   whose every row PLAYS its action and whose header plays the one you point at, big).
+   Click a row and the right half follows it. There must be no second 「状态」 heading, no state
    dropdown and no tick count; 全选 / 清空 sit on the search line, and 清空 on 空闲 asks
-   for confirmation instead of the page carrying the rule as text.
-5. Switch to 动作: the studio takes the WHOLE pane, and its 动作 row is TWO lines — the
-   dropdown with 新建动作 / 删除动作 beside it, then the action's NAME. Click it and the
-   library opens with thumbnails, type to filter, Enter to pick. Paint a
-   few cells (draw a wink to prove strokes are not mirrored), hit 复制一帧 and
-   整幅挪动 ↓ once (its label and pad on ONE row of 当前帧), then switch to 状态, tick that
-   action for `tool`, and switch BACK: you are still on the same action and frame (the
-   session is keyed by the artwork), and running a tool
-   plays YOUR animation. 头像 / 全身 is a row ON TOP of the canvas — press it and the
-   board changes face; it appears nowhere else.  A built-in's page must look IDENTICAL
-   to 我的创作's (minus the action ops), and the card must start at the SAME offset in
-   both views. 批量删除 lives in the picker's footer. Move the
-   pane from ~400 px to ~1200 px — the board stays a complete square, the 状态 columns
-   stack only under 480 px, and nothing wraps one character per line.
-6. The 128 draft makes the popup show your body crop instead of the 4× upscale (dock
-   untouched); a corrupted
-   `localStorage["status-pet:skin"]` falls back to the default skin; editing a brush
-   leaves earlier pixels alone; the paint box survives a reload.  There is no 撤销 /
-   重做, no 导入 / 导出 JSON and no 导入动作 anywhere on the page.
+   for confirmation instead of the page carrying the rule as text.  A page reload must
+   bring the same assignment back.
+5. Switch to 动作: the board takes the pane, its face switch (头像 / 全身) sits ON TOP of
+   it, the action's live preview sits beside it, and the filmstrip under it steps through
+   the action's frames. The picker opens the whole library with PLAYING thumbnails,
+   filters as you type, and Enter moves the board. **Nothing gets written**: a click on a cell does
+   nothing at all (there is no handler to fire), and there is no 新建/删除动作, no
+   frame op, no 画笔 box and no 当前帧 numbers anywhere on the page. Move the pane from
+   ~400 px to ~1200 px: the board stays a complete square beside its preview, and the 状态
+   columns stack only under 480 px.
+6. Change one assignment — tick an action onto `tool` that the default did not name, then
+   run a tool: the dock and the popup play it, in the same frame. Untick it and the state
+   falls back to the artwork.  Clear 空闲 down to one action and confirm it never empties.
+   A corrupted `localStorage["status-pet:skin"]` (or one left by the customisation build)
+   falls back to the default skin.  There is no 我的创作 card, no 撤销 / 重做, no
+   导入 / 导出 JSON, no 导入动作 and no drawing surface anywhere on the page.
 
 ### Common issues
 
@@ -1049,34 +962,43 @@ enabled=true|false`, `list_bundles`.  Without it: `dsh plugin --profile <name> a
 
 - **Status-driven, not decorative** — an ambient indicator of agent activity. State
   comes only from the seat's standard props, through narrow selectors; nothing polls.
-- **Motion is artwork** — every state is a user-drawable frame animation, each take held for a
-  minimum number of plays before the next is rolled, so an activity reads as something
-  the pet is doing and a blink stays organic. The system owns only the vocabulary, the
-  pill accent, and reaction durations.
+- **Motion is artwork, and the artwork is authored** — every state is a frame animation
+  from the baked chunk, each take held for a minimum number of plays before the next is
+  rolled, so an activity reads as something the pet is doing and a blink stays organic.
+  The system owns only the vocabulary, the pill accent, and reaction durations; what the
+  user owns is WHICH action each state plays.
+- **DRAWING was given up on purpose; looking was not.**  An in-app pixel studio was built,
+  reworked three times and then removed (schema v10): it was ~38% of the hand-written
+  source, and it forced a migration/import/validation pipeline, a 15 MB coalesced write
+  policy and a mutate-and-invalidate model on every other feature, while its value was
+  unverifiable.  What survived is the part with daily value — the state assignment — and
+  the 动作 view, which came back as a **viewer**: the same picker, board and filmstrip,
+  with every writing control simply not rendered.  Measured against the commit before the
+  removal: `src/` 6535 → 4522 lines, `test/` 4258 → 2746 lines, 179 → 135 tests, the
+  shipped `client.js` 168.2 kB → 99.6 kB (gzip 46.1 → 27.8 kB), `paint.ts` and `convert.ts`
+  deleted outright (the pixel primitives and the any-shape door), and a stored payload of
+  a few hundred bytes instead of 15 MB.  `git log` keeps the studio if it is ever wanted
+  back.
 - **One action, two faces** — the dock and the popup are two CROPS of one character, so
   they are two faces of one action, not two libraries: the frame count, the pace, the
   per-frame timing, the offset and the state assignment are single source, and the
   player couples them too (the dock leads the take channel, the popup follows). A
   missing body face is DERIVED (the avatar at 4×) rather than invented, so the body
   stays optional without ever breaking the pairing.
-- **Integer ratios only** — the render is 1:1 (the studio board, skin cards, stage
-  preview) or an exact integer ratio (the popup's 4× upscale, the dock's 1:2
+- **Integer ratios only** — every render is 1:1 (the skin cards at 2×, the row
+  thumbnails at 1×) or an exact integer ratio (the popup's 4× upscale, the dock's 1:2
   `LIVE_ZOOM`). Fractional geometry is what made movement invisible and pixel art blurry;
   **whole-pixel displacement** goes with it, because fractional offsets make `pixelated`
   snap rows unevenly.
-- **The user owns the artwork** — taste is unarguable. Custom data is validated on every
-  read and falls back to the default skin; the editor NEVER rejects a stroke and does not
-  mirror one either; a pixel carries its own colour (the palette is a private dedup table
-  the editor grows), so there is no palette to manage and editing a brush can never
-  repaint the board; the display size is a viewing preference, never part of the artwork.
-  Built-in skins stay machine-checked, and they are the only fixed-palette artwork.
 - **The dock is a read-out; the popup is the toy** — see *Interactions* / *Click popup*.
   A reaction reachable only by hitting a 64px sprite reads as a dead popup.
 - **Declarative registries; invariants as tests** — adding a state, skin or interaction is
   an entry plus a label, and clipping headroom, library integrity (both crops in step) and
   registry completeness are asserted, so a future edit cannot quietly break them.
 - **Fail soft on a contract change** — `useNo*` fallbacks keep the hook count stable, so
-  a missing prop yields a plain pet rather than a crashed slot entry.
+  a missing prop yields a plain pet rather than a crashed slot entry. The stored
+  assignment is sanitized on the way in for the same reason, and a refused write (quota,
+  private mode) falls back to what storage actually holds rather than serving a lie.
 - **Locale from the start** — every visible string goes through the `status-pet`
   namespace (`en` + `zh`).
 - **Fixed position over a broken choice** — a user-configurable position was tried and
@@ -1086,16 +1008,18 @@ enabled=true|false`, `list_bundles`.  Without it: `dsh plugin --profile <name> a
 
 ### Known gaps
 
-- **The dock pet itself is still unobserved.** The bundle is installed and both
-  registrations are live; the Settings tab has been seen rendering. Checklist 1–4 is the
-  gap.
+- **The Settings tab has not been seen on screen since the viewer was rebuilt.** The
+  structure is asserted from the rendered tree (the tests above), but the two-column state
+  list beside its edit, and the board beside its preview at a real pane width, are
+  appearance questions — checklist 4–6 is the gap.
 - **The pet renders ~14 CSS px wide** — the avatar's content spans columns 1–14 of the
   authored 16 (1–28 of the 32px grid) at `LIVE_ZOOM`: the dock's quiet layer next to the
   host's ~14px pill icons, while the popup is the big one (64 CSS px of body art).
-- **The studio's feel is unverified.** Its layout was measured once with a throwaway
-  headless harness (400–1200px of pane, both faces, empty-body too) and its interactions
-  are unit-tested — not a regression guard; the structural layout tests are.
 - **The two-layer sync has not been seen on screen.** `loop.test.ts` drives two real
   players through one ticker and asserts the follower paints the leader's exact frame,
   but "the dock and the peek read as the same pet" is an appearance question (checklist
   items 1–2).
+- **Nothing keeps the class list honest but the tests.** Two of this project's rewrites
+  silently lost CSS rules, which is why the stylesheet is asserted — and why the suite
+  asserts both that the viewer's rules are PRESENT and that the writing controls' rules
+  are absent.

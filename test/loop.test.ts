@@ -98,11 +98,11 @@ function decode(input: number | null) {
 
 /** A running player on `skin`, following `state`.  `role` decides whether it
  *  LEADS the take channel (the dock) or FOLLOWS it (the click popup). */
-function player(skin: any, state: string, pin?: { current: number }, role?: 'lead' | 'follow') {
+function player(skin: any, state: string, role?: 'lead' | 'follow') {
   const canvas: any = { width: 0, height: 0, style: {}, getContext: () => ctxStub };
   const faceRef = { current: state };
   const stop = startLoop(canvas as HTMLCanvasElement, faceRef, { current: false }, () => 1,
-    { current: skin }, pin ?? null, 1, role);
+    { current: skin }, 1, role);
   return {
     faceRef,
     stop,
@@ -247,17 +247,6 @@ test('a state that outlives the dwell restarts the cycle', () => {
   }
 });
 
-test('a pinned take (the editor preview) ignores the rotation', () => {
-  const p = player(makeSkin(6, 4), 'idle', { current: 3 });
-  try {
-    for (let tick = 0; tick < 30; tick++) {
-      assert.equal(p.step(at(tick)).take, 3, 'the pinned take never rotates away');
-    }
-  } finally {
-    p.stop();
-  }
-});
-
 // ── the take channel: the dock leads, the click popup follows ──
 //
 // v9 gives both faces the ONE action library and the ONE state table, so the
@@ -336,9 +325,9 @@ test('a follower draws the leader\'s take and phase — the peek is the same ani
   const dock = trackedCanvas();
   const peek = trackedCanvas();
   const dockStop = startLoop(dock.canvas, { current: 'idle' }, { current: false }, () => 1,
-    { current: skin }, null, 1, 'lead');
+    { current: skin }, 1, 'lead');
   const peekStop = startLoop(peek.canvas, { current: 'idle' }, { current: false }, () => 1,
-    { current: skin }, null, 1, 'follow');
+    { current: skin }, 1, 'follow');
   try {
     for (let tick = 0; tick < 24; tick++) {
       dock.seen.value = null;
@@ -361,9 +350,9 @@ test('a follower whose state differs rolls its own take instead of mirroring', (
   const dock = trackedCanvas();
   const peek = trackedCanvas();
   const dockStop = startLoop(dock.canvas, { current: 'idle' }, { current: false }, () => 1,
-    { current: skin }, null, 1, 'lead');
+    { current: skin }, 1, 'lead');
   const peekStop = startLoop(peek.canvas, { current: 'tool' }, { current: false }, () => 1,
-    { current: skin }, null, 1, 'follow');
+    { current: skin }, 1, 'follow');
   try {
     for (let tick = 0; tick < 12; tick++) {
       dock.seen.value = null;
@@ -384,9 +373,9 @@ test('a follower keeps playing after the leader is gone', () => {
   const dock = trackedCanvas();
   const peek = trackedCanvas();
   const dockStop = startLoop(dock.canvas, { current: 'idle' }, { current: false }, () => 1,
-    { current: skin }, null, 1, 'lead');
+    { current: skin }, 1, 'lead');
   const peekStop = startLoop(peek.canvas, { current: 'idle' }, { current: false }, () => 1,
-    { current: skin }, null, 1, 'follow');
+    { current: skin }, 1, 'follow');
   try {
     tickAll(at(0));
     dockStop();                       // the dock unmounts

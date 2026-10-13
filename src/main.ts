@@ -12,11 +12,7 @@ import {
   SKIN_EVENT,
   STORE_VERSION,
   DEFAULT_SKIN,
-  validateArtwork,
-  artworkErrors,
-  flushStored,
-  serializeArtwork,
-  parseArtworkExport,
+  BUILTIN_NAMES,
   loadStored,
   saveStored,
   resolveSkin,
@@ -25,17 +21,19 @@ import {
   resolveTakeSkin,
   activeSkin,
   installSkinArtwork,
-  loadBrushes,
-  adoptRows,
   actionsOf,
   cellFor,
+  spriteFor,
+  parseFrame,
+  spriteToRows,
   upscaleCell,
   skinLibrary,
   skinArtwork,
   artworkDoc,
+  artworkOverrides,
   saveSkinStates,
-  seedArtworkFrom,
   withOverrides,
+  withStates,
   libraryInfo,
   usageIndex,
   usedBy,
@@ -43,29 +41,19 @@ import {
   hasActionBody,
   pairArtwork,
   upgradeArtwork,
-  convertArtwork,
+  looksV8,
+  looksV9,
   assignTake,
   setStateSelection,
-  addLibraryTake,
-  removeLibraryTake,
-  removeLibraryTakes,
-  removalIsBlocked,
-  renameLibraryTake,
-  replaceLibraryTake,
-  replaceFrameCell,
-  dropFrameCell,
-  overwriteLibraryTake,
-  withActions,
-  withStates,
   MAX_TAKES,
   MAX_LIBRARY,
   MAX_FRAMES,
-  MAX_PALETTE,
+  DEFAULT_FRAME_MS,
 } from './pet/skins/store.ts';
 import { DockPet } from './ui/dock-pet.ts';
 import { SettingsPage } from './ui/settings/page.ts';
 import { SkinPicker } from './ui/settings/skin-picker.ts';
-import { PixelEditor } from './ui/settings/pixel-editor.ts';
+import { ActionViewer } from './ui/settings/action-viewer.ts';
 import { PetPreview } from './ui/pet-preview.ts';
 
 // The dock entry's position is fixed: −1000 is below every shipped entry,
@@ -115,7 +103,7 @@ interface PluginContext {
   };
   slots: {
     inject: (name: string, fn: () => unknown) => void;
-    register: (opts: SlotRegistrationOptions, component: unknown) => () => void;
+    register: (opts: SlotRegistrationOptions, component: unknown) => unknown;
   };
 }
 
@@ -127,70 +115,54 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale'],
       // Exposed for the test suite (and anyone embedding the artwork): the
-      // pure skin helpers plus the customisation components.  The host
+      // pure skin reads the Workshop and the resolution work through.  The host
       // ignores unknown fields.
       skinTools: {
         STORE_KEY,
         SKIN_EVENT,
         STORE_VERSION,
         DEFAULT_SKIN,
+        BUILTIN_NAMES,
         GRIDS,
-        validateArtwork,
-        // The memoized gate and the write buffer: `artworkErrors` is what the
-        // store itself asks (keyed by document identity), and `flushStored`
-        // forces a coalesced snapshot out — the editing session keeps its
-        // document in memory and writes localStorage in bursts.
-        artworkErrors,
-        flushStored,
-        serializeArtwork,
-        parseArtworkExport,
         loadStored,
         saveStored,
         resolveSkin,
         resolveBestSkin,
         resolveNamedSkin,
+        resolveTakeSkin,
         activeSkin,
         installSkinArtwork,
-        // The PAIRED model: one action library, two faces per action.  These are
-        // the reads and writes the Workshop (and the suite) work through.
+        // The PAIRED model: one action library, two faces per action, and ONE
+        // state assignment.  These are the reads the Workshop and the suite use.
         actionsOf,
         cellFor,
+        spriteFor,
+        parseFrame,
+        spriteToRows,
         upscaleCell,
         hasBody,
         hasActionBody,
         pairArtwork,
         upgradeArtwork,
-        convertArtwork,
+        looksV8,
+        looksV9,
         artworkDoc,
         skinArtwork,
         skinLibrary,
-        resolveTakeSkin,
+        artworkOverrides,
+        withOverrides,
+        withStates,
         libraryInfo,
         usageIndex,
         usedBy,
-        withActions,
-        withStates,
         assignTake,
         setStateSelection,
-        addLibraryTake,
-        removeLibraryTake,
-        removeLibraryTakes,
-        removalIsBlocked,
-        renameLibraryTake,
-        replaceLibraryTake,
-        replaceFrameCell,
-        dropFrameCell,
-        overwriteLibraryTake,
         saveSkinStates,
-        seedArtworkFrom,
-        withOverrides,
         MAX_TAKES,
         MAX_LIBRARY,
         MAX_FRAMES,
-        MAX_PALETTE,
-        adoptRows,
-        loadBrushes,
-        ui: { SkinPicker, PixelEditor, PetPreview },
+        DEFAULT_FRAME_MS,
+        ui: { SkinPicker, ActionViewer, PetPreview },
       },
       apply(ctx: PluginContext) {
         ctx.effect(() => ctx.locale.register(NS, LABELS));

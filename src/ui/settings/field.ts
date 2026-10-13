@@ -1,9 +1,8 @@
 // The Workshop's field row — one labelled row of a settings card.
 //
 // The label column is the spine: it is what makes a region read as a list of
-// settings instead of a heap of buttons, and both halves of 编辑 (按状态's
-// assignment surface and 按动作's studio) are built out of the same row so they
-// read as one page.
+// settings instead of a heap of buttons.  The assignment surface is built out
+// of it.
 //
 // A plain function, not a component: it holds no state, and keeping its output
 // in the caller's tree is what lets the tests (and the reader) see each card as

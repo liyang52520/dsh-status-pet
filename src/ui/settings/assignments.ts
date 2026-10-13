@@ -1,33 +1,25 @@
 // 状态 detail — the state ↔ action assignment surface, and the RIGHT half of
-// the page's 状态 view (the master list on the left picks the state; see
-// page.ts).
+// the page (the master list on the left picks the state; see page.ts).
 //
-// It answers exactly one question: "which actions does THIS state play?".
-// Drawing pixels is the other object's job (the 动作 view) and this surface
-// never mentions it, because that mix is what made the old single page read as
-// nonsense.
+// It answers exactly one question: "which actions does THIS state play?" — the
+// only thing about a built-in that is the user's to change.
 //
 //   * a checkbox here is a REFERENCE, never a copy.  Ticking one action in
-//     three states is one definition played three times — the row reports
-//     「被 N 个状态在用」, and editing that action (the 动作 view) changes all
-//     three;
+//     three states is one definition played three times, and the row reports
+//     「被 N 个状态在用」;
 //   * a state with nothing ticked FOLLOWS IDLE: `assignTake` /
 //     `setStateSelection` delete the key rather than storing `[]`, so there is
-//     one representation of "unset" and no "take over this state" step;
-//   * the row's ✎ is the SEAM to the other object: it opens the board on that
-//     action.  The page's 动作 master list is the ordinary door; this is the
-//     shortcut from "this state plays it" to "let me draw it".
+//     one representation of "unset" and no "take over this state" step.
 //
-// v9: there is ONE assignment for the whole artwork — the dock and the popup
-// play the same action set by construction — so this surface has no crop of its
-// own.  The page's face switch decides which FACE the preview and the row
-// thumbnails show (a viewing preference), never which library is assigned.
+// There is ONE assignment for the whole artwork — the dock and the popup play
+// the same action set by construction — so this surface has no crop of its own.
 //
 // The only bulk ops are 全选 and 清空.  全选 ADDS every action in the list in
 // front of you (the search box is the scope of a bulk tick, so a 106-action
 // library can be aimed instead of bulldozed), and 清空 empties the state —
 // except 空闲, which keeps its first action, because it is the anchor every
-// unassigned state falls back to and the document is invalid without one.
+// unassigned state falls back to and an empty idle would leave the pet drawing
+// nothing.
 //
 // The list is DISPLAYED in two groups — the actions this state already plays
 // first, then the rest — because "what does this state do?" is the question the
@@ -35,58 +27,51 @@
 // only appear while both halves have something in them, and the stored
 // selection is untouched: display order must never re-order the rotation.
 //
-// BOTH skins get here.  A built-in's pixels are frozen, but which of its own
-// actions each state plays is the user's to change, and the store keeps that as
-// a diff beside the skin (`saveSkinStates`) instead of forking it into 我的创作.
-// 我的创作 writes its document itself.
+// The write goes through `saveSkinStates`, which stores a DIFF beside the
+// frozen artwork, so a state the user never touched keeps following the
+// artwork.
 
 import { React, h } from '../../host-deps.ts';
-import { AVATAR_GRID, BODY_GRID, LIVE_ZOOM } from '../../pet/grids.ts';
-import { FrameCanvas, ROW_THUMB_CSS } from './frame-canvas.ts';
+import { BODY_GRID, LIVE_ZOOM } from '../../pet/grids.ts';
+import { ActionThumb } from './action-thumb.ts';
 import { translatorOrFallback } from '../../pet/labels.ts';
 import type { Translator } from '../../pet/labels.ts';
 import {
-  DEFAULT_SKIN,
   MAX_TAKES,
   actionsOf,
   assignTake,
-  cellFor,
   saveSkinStates,
-  seedArtworkFrom,
   setStateSelection,
   skinArtwork,
   usedBy,
 } from '../../pet/skins/store.ts';
-import type { Action, CustomArtwork } from '../../pet/skins/store.ts';
+import type { Action, Artwork } from '../../pet/skins/store.ts';
 import { PetPreview } from '../pet-preview.ts';
 import { field } from './field.ts';
 
+/** The document the page shows until the artwork chunk has landed (a few
+ *  milliseconds at boot): an empty library, never a crash. */
+const EMPTY_ARTWORK: Artwork = { palette: ['transparent'], actions: [], states: {} };
+
 export function StateAssignments(props: {
   t?: Translator;
-  /** The skin whose states are being assigned: 'custom' (its own document) or a
-   * built-in (a diff beside the frozen artwork). */
+  /** The skin whose states are being assigned. */
   skin: string;
-  /** Which FACE the preview and the row thumbnails show (the page's shared
-   * switch).  A viewing preference: the assignment itself is one table for both
-   * faces. */
-  grid?: number;
   /** The state in front of you.  Owned by the page: its 状态 master list is the
-   * ONE door, so this surface carries no selector of its own (a dropdown here
-   * named the same state a third time). */
+   *  ONE door, so this surface carries no selector of its own. */
   state: string;
   /** Called after every write, so the page's master list re-reads what it just
-   * changed (the row meta is built from the store, not from this component). */
+   *  changed (the row meta is built from the store, not from this component). */
   onWritten?: () => void;
 }) {
   const t = translatorOrFallback(props.t);
   const skin = props.skin;
-  const grid = props.grid === 128 ? 128 : AVATAR_GRID;
   const state = props.state;
-  // The EFFECTIVE document: a built-in plus the user's overrides, or 我的创作's
-  // own.  Reading it (rather than the raw built-in) is what makes a second tick
-  // build on the first, and what keeps this page and the resolution in step.
-  const [art, setArt] = React.useState<CustomArtwork>(
-    () => skinArtwork(skin) || seedArtworkFrom(DEFAULT_SKIN));
+  // The EFFECTIVE document: the authored artwork plus the user's overrides.
+  // Reading it (rather than the raw artwork) is what makes a second tick build
+  // on the first, and what keeps this page and the resolution in step.
+  const [art, setArt] = React.useState<Artwork>(
+    () => skinArtwork(skin) || EMPTY_ARTWORK);
   // The synchronous mirror of `art`: a rapid click may fire before React has
   // re-rendered, and every mutator reads the document at CALL time.
   const artRef = React.useRef(art);
@@ -126,9 +111,9 @@ export function StateAssignments(props: {
   const restRows = rows.filter(({ a }) => !ticked.has(a.id));
   const grouped = tickedRows.length > 0 && restRows.length > 0;
 
-  function commit(next: CustomArtwork) {
-    // The store routes the write (document or override) and re-resolves ACTIVE,
-    // so the dock, the popup and the other view all follow without a reload.
+  function commit(next: Artwork) {
+    // The store routes the write (a diff beside the frozen artwork) and
+    // re-resolves ACTIVE, so the dock and the popup follow without a reload.
     saveSkinStates(skin, next.states || {});
     // Show what was actually STORED: the write may have been refused (quota),
     // and the override merge is the store's, not ours.
@@ -192,12 +177,9 @@ export function StateAssignments(props: {
           onFocus: () => setHover(a.id),
           onBlur: () => setHover((h) => (h === a.id ? null : h)),
         }),
-        h(FrameCanvas, {
-          frame: cellFor(a.frames[0], AVATAR_GRID),
-          palette: art.palette,
-          grid: AVATAR_GRID,
-          css: ROW_THUMB_CSS,
-        }),
+        // The row PLAYS its action (a still of frame 0 hid what the animation
+        // does); the label owns the click, so the picture never swallows a tick.
+        h(ActionThumb, { skin, actionId: a.id }),
         h('span', { className: 'status-pet-library-name' }, text),
       h('span', { className: 'status-pet-library-meta' },
         a.frames.length + ' · ' + (used.length

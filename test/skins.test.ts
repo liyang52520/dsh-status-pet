@@ -1,9 +1,9 @@
 // The built-in artwork — through the PAIRING door, because that is what the
-// runtime draws.  A built-in is the same `Artwork` document 我的创作 is, so the
-// strongest check available is the store's OWN validator; on top of that the
-// suite asserts the handful of rendering invariants the validator deliberately
-// does not care about (sprite headroom at BOTH faces, crop completeness, the
-// state vocabulary), and the pairing rules the model rests on:
+// runtime draws.  The strongest check available is `validateArtwork` (the
+// authored-data invariant module; the suite is its only caller), and on top of
+// that this asserts the handful of rendering invariants the validator
+// deliberately does not care about (sprite headroom at BOTH faces, crop
+// completeness, the state vocabulary), plus the pairing rules the model rests on:
 //
 //   * both faces of an action share the frame count, the pace, the per-frame
 //     `ms` and the offset;
@@ -19,8 +19,8 @@ const { ARTWORK } = await import('../src/artwork.gen.ts');
 const { BUILTIN_NAMES, DEFAULT_SKIN, installArtwork } = await import('../src/pet/skins/built-ins.ts');
 const { GRIDS, AVATAR_GRID, BODY_GRID, BODY_FALLBACK_SCALE } = await import('../src/pet/grids.ts');
 const { STATE_NAMES } = await import('../src/pet/behavior.ts');
+const { validateArtwork } = await import('../src/pet/skins/validate.ts');
 const {
-  validateArtwork,
   parseFrame,
   spriteToRows,
   pixelAt,

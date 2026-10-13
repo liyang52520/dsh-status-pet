@@ -1,18 +1,19 @@
-// Artwork validation — the guard every read of stored or imported artwork
-// passes through, and the hot spot the editor lives or dies by.
+// The built-in artwork's invariant check.
 //
-// A stored document is ~106 actions of 32- and 128-pixel rows: the full scan
-// is millions of characters.  `validateArtwork` is therefore built out of
-// MEMOIZED PARTS (see `actionErrors` below): a document is checked per ACTION,
-// and each verdict is keyed by the OBJECT IDENTITY of the action itself.
-// Artwork is immutable by construction — every mutator in the studio builds
-// fresh objects and shares everything it did not change by reference — so
-// identity is a sound key: a stroke that rewrites ONE action re-scans that one
-// action and re-uses the cached verdicts for the other 105.
+// There is exactly ONE artwork document in the system and it is AUTHORED — the
+// 15.9 MB baked chunk, which is hand-maintained: a genuine fix to a built-in
+// action is a hand-edit of `src/artwork.gen.ts`.  This module is what makes
+// such an edit safe: it re-checks the paired document the way the renderer
+// reads it (full-grid rows, legal palette indices, a required avatar face, an
+// idle assignment that actually points at an action), so a botched edit fails
+// the suite instead of failing in the popup.
 //
-// The scan itself is deliberately allocation-free: a nibble lookup table and
-// one fused pass per row, no per-pixel slicing and no per-row regex.  Drawing
-// is FREE — nothing here requires the symmetry the old editor imposed.
+// It therefore has NO runtime caller: nothing validates on a hot path any more,
+// because nothing untrusted reaches the renderer — the state assignment diff is
+// sanitized where it is applied (`withOverrides`).  `pnpm test` is the caller.
+//
+// The scan is allocation-free: a nibble lookup table and one fused pass per
+// row, no per-pixel slicing and no per-row regex.
 
 import { AVATAR_GRID, GRIDS } from '../grids.ts';
 import { STATE_NAMES } from '../behavior.ts';
@@ -23,8 +24,7 @@ import { MAX_FRAMES, MAX_LIBRARY, MAX_TAKES, MIN_FRAME_MS, MAX_FRAME_MS } from '
 const SKIN_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
 /** How many colours an artwork's palette can carry (index 0 is transparency,
- *  so indices 1–255): the ceiling of the two-character pixel format.  The
- *  studio never makes the user manage this — it grows as they paint. */
+ *  so indices 1–255): the ceiling of the two-character pixel format. */
 export const MAX_PALETTE = 256;
 
 // ── the pixel scan ──
@@ -32,7 +32,7 @@ export const MAX_PALETTE = 256;
 // One nibble table for every character a pixel may hold: '0'-'9' and 'a'-'f'.
 // Anything else (including a stray uppercase hex digit, which the format does
 // not use) is −1 and rejects the pixel — so the charset check and the colour
-// check are the same pass, and a row no longer needs its own regex.
+// check are the same pass, and a row never needs its own regex.
 
 const NIBBLE = new Int8Array(128).fill(-1);
 for (let i = 0; i < 10; i++) NIBBLE[48 + i] = i;          // '0'-'9'
@@ -75,10 +75,9 @@ function validateRows(rows: unknown, grid: number, tag: string, maxIdx: number):
   return errors;
 }
 
-// Props are part of a FACE (the accents the v8 data carried; the studio can
-// import them with an action).  They are checked like frames: rectangular
-// legal pixels that sit inside the grid, where the horizontal headroom
-// guarantees a legal offset cannot clip them.
+// Props are part of a FACE (the accents the baked data carries).  They are
+// checked like frames: rectangular legal pixels that sit inside the grid, where
+// the horizontal headroom guarantees a legal offset cannot clip them.
 function validateProp(prop: unknown, grid: number, tag: string, maxIdx: number): string[] {
   if (prop === undefined) return [];
   if (!prop || typeof prop !== 'object') return [tag + ': prop is not an object'];
@@ -169,52 +168,15 @@ function validateAction(action: unknown, tag: string, maxIdx: number): string[] 
   return errors;
 }
 
-// ── the memoized parts ──
-//
-// The cache is a WeakMap keyed by the ACTION object, so an entry dies with the
-// artwork it describes and can never leak or go stale: a document that changed
-// is a different object.  The values are the error LISTS; the empty list is the
-// common case and is shared, frozen, so callers cannot scribble on a cached
-// verdict.  Only the palette ceiling can change a verdict, so that is the only
-// extra key.
-
-const NO_ERRORS: readonly string[] = Object.freeze([]);
-
-/** One action's verdict, keyed by the action object and the palette ceiling.
- *  The `tag` is baked into the messages of the first caller — an action that
- *  MOVED in the library would still be described at its old position, which is
- *  a cosmetic difference in an error no user sees. */
-const ACTION_ERRORS = new WeakMap<object, Map<number, string[]>>();
-
-function actionErrors(action: unknown, tag: string, maxIdx: number): string[] {
-  if (!action || typeof action !== 'object') return validateAction(action, tag, maxIdx);
-  let byKey = ACTION_ERRORS.get(action as object);
-  if (!byKey) {
-    byKey = new Map();
-    ACTION_ERRORS.set(action as object, byKey);
-  }
-  const hit = byKey.get(maxIdx);
-  if (hit) return hit;
-  const errors = validateAction(action, tag, maxIdx);
-  if (!errors.length) {
-    byKey.set(maxIdx, NO_ERRORS as string[]);
-    return NO_ERRORS as string[];
-  }
-  byKey.set(maxIdx, errors);
-  return errors;
-}
-
 // ── the document scan ──
 
-/** Validate the full custom artwork document.  The avatar `idle` assignment is
- *  the only required artwork; everything else is optional and falls back.
- *  Rows need not be mirror-symmetric: the studio draws freely, and requiring
- *  symmetry was only ever an editor convention, not a rendering one.
+/** Validate a paired artwork document.  Rows need not be mirror-symmetric:
+ *  symmetry was only ever an editor convention, never a rendering one.
  *
  * The library is checked as a REFERENCE TABLE: ids are unique, and every id a
  * state names must exist.  A state that points at an action the library does
  * not carry is refused here rather than silently rendering one animation fewer
- * — that is the whole reason the reference is validated instead of resolved
+ * — that is the whole reason the reference is checked instead of resolved
  * leniently. */
 export function validateArtwork(d: unknown): string[] {
   const errors: string[] = [];
@@ -251,7 +213,7 @@ export function validateArtwork(d: unknown): string[] {
       if (ids.has(action.id)) errors.push(tag + ': duplicate id ' + action.id);
       else ids.add(action.id);
     }
-    errors.push(...actionErrors(action, tag, maxIdx));
+    errors.push(...validateAction(action, tag, maxIdx));
   });
   if (!art.states || typeof art.states !== 'object') {
     errors.push('the artwork must carry states');
@@ -284,29 +246,4 @@ export function validateArtwork(d: unknown): string[] {
     errors.push('the artwork must carry an idle state');
   }
   return errors;
-}
-
-// ── the memoized document gate ──
-//
-// What the STORE asks, on every resolution: "may I render this document?".
-// Keyed by the document object, but built out of the cached parts above, so a
-// stroke re-validates only the action it rewrote.  A document that is valid
-// caches the shared empty verdict.
-
-const DOC_ERRORS = new WeakMap<object, string[]>();
-
-export function artworkErrors(d: unknown): readonly string[] {
-  if (!d || typeof d !== 'object') return validateArtwork(d);
-  const hit = DOC_ERRORS.get(d as object);
-  if (hit) return hit;
-  const errors = validateArtwork(d);
-  const answer = errors.length ? errors : (NO_ERRORS as string[]);
-  DOC_ERRORS.set(d as object, answer);
-  return answer;
-}
-
-/** Is this document renderable?  The store's one question, at O(1) when the
- *  document has been seen and at "one action" when it was just edited. */
-export function artworkIsValid(d: unknown): boolean {
-  return artworkErrors(d).length === 0;
 }

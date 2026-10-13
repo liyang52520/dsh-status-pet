@@ -1,21 +1,19 @@
 // Resolution: an `Artwork` document → render-ready data, plus the module-level
 // ACTIVE skin and the change broadcast.
 //
-// This is the hot end of the wardrobe.  A canvas asks for a skin every frame,
-// the Workshop asks for eleven states plus up to 106 actions, and the store
-// re-resolves on every write — so nothing here may do work twice for artwork
-// that did not change:
+// This is the hot end of the wardrobe.  A canvas asks for a skin every frame
+// and the settings page asks for eleven states plus up to 106 actions, so
+// nothing here may do work twice for artwork that did not change:
 //
 //   * `resolveArtwork` is memoized by (ARTWORK OBJECT, name, grid).  Artwork is
 //     immutable, so an unchanged document gives back the very same
 //     `ResolvedSkin` — the same state table, the same `Sprite` objects, and
 //     therefore the same pre-rendered bitmaps in the renderer's cache.
-//   * the per-state bodies stay LAZY (a canvas plays one state; the gallery
-//     resolves one action each), and two states that play the same set share
-//     one object by identity.
+//   * the per-state bodies stay LAZY (a canvas plays one state), and two states
+//     that play the same set share one object by identity.
 //   * a face is parsed through `spriteFor`, memoized per CELL object, and the
-//     4× body fallback is memoized per avatar cell, so a stroke re-parses the
-//     face it painted and re-uses every other sprite.
+//     4× body fallback is memoized per avatar cell, so re-resolving one face
+//     re-uses every other sprite.
 //
 // ── the two faces ──
 //
@@ -36,7 +34,6 @@ import { BUILTIN_NAMES, DEFAULT_SKIN, builtinArtwork, installArtwork } from './b
 import { DEFAULT_FRAME_MS, cellFor, hasBody, offsetScale, spriteFor } from './compose.ts';
 import type { Action, Artwork, Sprite } from './compose.ts';
 import { artworkDoc, artworkOverrides, withOverrides } from './documents.ts';
-import { artworkIsValid } from './validate.ts';
 import { loadStored, onStoreWrite, SKIN_EVENT, STORE_KEY } from './storage.ts';
 import type { StoredData } from './storage.ts';
 
@@ -75,19 +72,19 @@ export interface ResolvedSkin {
 // ── one grid's states ──
 //
 // States resolve LAZILY.  A skin carries artwork for all eleven states, but a
-// canvas plays exactly one of them — the settings gallery resolves nine skins
-// to draw nine different states, and the editor re-resolves on every stroke.
-// Parsing all eleven eagerly was most of that cost; the getter below parses a
-// state on first access and memoizes it, while an unassigned state still shares
-// the idle resolution BY IDENTITY (`states.x === states.idle`), which the suite
-// asserts and the renderer relies on.
+// canvas plays exactly one of them — a settings page resolves ten skins to draw
+// ten different states.  Parsing all eleven eagerly was most of that cost; the
+// getter below parses a state on first access and memoizes it, while an
+// unassigned state still shares the idle resolution BY IDENTITY
+// (`states.x === states.idle`), which the suite asserts and the renderer relies
+// on.
 //
 // The library turns a state's list of IDS into its takes, so two states that
 // play the same set share one resolution by identity as well — the reference is
 // the same, the resolved animation is the same object.
 
 /** One frame's face at `grid`: the authored cell, or the avatar at 4× — the
- *  same fallback the Workshop shows, memoized per (frame, grid). */
+ *  same fallback the settings page shows, memoized per (frame, grid). */
 function faceSprite(frame: Action['frames'][number], grid: number): Sprite {
   return spriteFor(cellFor(frame, grid));
 }
@@ -176,10 +173,9 @@ function memoFor(art: Artwork): Map<string, ResolvedSkin | null> {
   return byKey;
 }
 
-/** One resolver for every skin: a built-in and 我的创作 are the same `Artwork`
- *  shape, so there is exactly one code path from artwork to render-ready data.
- *  A skin without the requested crop falls back to ITS OWN other crop — never
- *  to another skin's artwork. */
+/** There is exactly one code path from artwork to render-ready data.  A skin
+ *  without the requested crop falls back to ITS OWN other crop — never to
+ *  another skin's artwork. */
 function resolveArtwork(name: string, art: Artwork, grid: number): ResolvedSkin | null {
   const byKey = memoFor(art);
   const key = name + '|' + grid;
@@ -242,19 +238,7 @@ function resolveDefault(grid: number): ResolvedSkin {
 }
 
 function resolveFor(stored: StoredData, name: string, grid: number): ResolvedSkin {
-  if (name === 'custom') {
-    // The validity gate is the memoized one: a document that has been checked
-    // is O(1) to re-check, and a document from storage is checked exactly once
-    // (its first resolution).  An invalid one falls back — a corrupt store must
-    // never blank the pet.
-    if (stored.custom && artworkIsValid(stored.custom)) {
-      const hit = resolveArtwork('custom', stored.custom, grid)
-        || (grid === BODY_GRID ? resolveArtwork('custom', stored.custom, AVATAR_GRID) : null);
-      if (hit) return hit;
-    }
-    return resolveDefault(grid);
-  }
-  const art = withOverrides(builtinArtwork(name), overrideFor(stored, name));
+  const art = withOverrides(builtinArtwork(name), artworkOverrides(stored, name));
   if (art) {
     const hit = resolveArtwork(name, art, grid)
       || (grid === BODY_GRID ? resolveArtwork(name, art, AVATAR_GRID) : null);
@@ -263,15 +247,11 @@ function resolveFor(stored: StoredData, name: string, grid: number): ResolvedSki
   return name === DEFAULT_SKIN ? emptySkin(name) : resolveDefault(grid);
 }
 
-// The override sidecar is read through documents.ts, which owns its shape and
-// its diff semantics.
-function overrideFor(stored: StoredData, name: string): Record<string, string[]> | null {
-  return artworkOverrides(stored, name);
-}
-
+/** The stored skin choice, normalized to a built-in we actually have.  An
+ *  unknown name (an older build's slot, a hand-edited store) falls back to the
+ *  default skin rather than blanking the pet. */
 function storedName(store: StoredData): string {
   const name = typeof store.skin === 'string' ? store.skin : DEFAULT_SKIN;
-  if (name === 'custom') return 'custom';
   return BUILTIN_NAMES.includes(name) ? name : DEFAULT_SKIN;
 }
 
@@ -289,23 +269,22 @@ export function resolveBestSkin(): ResolvedSkin {
   return resolveFor(stored, storedName(stored), BODY_GRID);
 }
 
-/** Resolve a NAMED skin for the picker's cards and the studio preview,
- *  regardless of the active skin.  A built-in resolves its authored palette;
- *  `custom` resolves its own artwork palette.  `grid` picks the crop (default:
- *  the 32px avatar; the 128px body exists only when the artwork carries it,
- *  else the avatar at 4x is used).  Returns null for 'custom' without artwork
- *  (a blank card, never a crash). */
+/** Resolve a NAMED skin for the picker's cards and the state header,
+ *  regardless of the active skin.  `grid` picks the crop (default: the 32px
+ *  avatar; the 128px body exists only when the artwork carries it, else the
+ *  avatar at 4x is used).  A built-in whose chunk has not landed yet resolves
+ *  to a blank card rather than a crash. */
 export function resolveNamedSkin(name: string, grid: number = AVATAR_GRID): ResolvedSkin | null {
   const art = artworkDoc(name);
   if (!art) {
-    if (name === 'custom' || !BUILTIN_NAMES.includes(name)) return null;
+    if (!BUILTIN_NAMES.includes(name)) return null;
     return emptySkin(name);           // a built-in whose chunk has not landed yet
   }
   return resolveArtwork(name, art, grid)
     || (grid === BODY_GRID ? resolveArtwork(name, art, AVATAR_GRID) : null);
 }
 
-/** Resolve ONE library action as a whole skin, so the Workshop can play any
+/** Resolve ONE library action as a whole skin, so the state header can play any
  *  action live — including one no state plays yet, which is exactly the action
  *  a user is deciding about.  Every state maps to that single action, so the
  *  preview is pinned whatever state name it is given.  Falls back to the other
@@ -330,8 +309,8 @@ function computeTakeResolve(name: string, art: Artwork, grid: number, takeId: st
   const spec = GRIDS[use];
   // A one-action skin: every state maps to the SAME resolved object, so the
   // preview is pinned whatever state name it is handed.  Building it directly
-  // skips the library map that a full resolution needs — the gallery asks for
-  // up to 106 of these, one per cell.
+  // skips the library map that a full resolution needs — the list asks for up
+  // to 106 of these, one per row.
   const resolved: ResolvedState = { takes: [resolveActionTakes(action, use)] };
   const states: Record<string, ResolvedState> = {};
   for (const state of STATE_NAMES) {
@@ -371,9 +350,9 @@ export function activeSkin(): ResolvedSkin {
 /** Re-read the store and re-resolve ACTIVE.  Called automatically by the store
  *  after every write; exported for tests and for anyone holding a stale store.
  *
- *  It deliberately does NOT clear the resolution caches any more: they are
- *  keyed by artwork IDENTITY, so a write that changed the document resolves
- *  through a new object and a write that did not is served from the memo. */
+ *  It deliberately does NOT clear the resolution caches: they are keyed by
+ *  artwork IDENTITY, so a write that changed the document resolves through a
+ *  new object and a write that did not is served from the memo. */
 export function refreshActiveSkin(): void {
   ACTIVE = resolveSkin(loadStored());
 }

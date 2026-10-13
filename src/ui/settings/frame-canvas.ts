@@ -1,9 +1,9 @@
-// A static one-frame canvas — the Workshop's thumbnail.
+// A static one-frame canvas — the filmstrip's still.
 //
-// Both tabs need the same picture: the studio's filmstrip shows an action's
-// frames, and the 关联 list shows one representative frame per action so the
-// row is recognisable.  It lives beside them rather than in either one, so the
-// editor does not have to be imported just to draw a 40px thumbnail.
+// The 动作 view's filmstrip shows an action's frames one at a time, and a STILL
+// is the whole point there: each thumbnail stands for exactly one frame, and
+// stepping through them is how an animation is read.  (The library rows are the
+// opposite case and play their action instead — see action-thumb.ts.)
 //
 // The canvas back is one pixel per grid pixel (32 or 128), so the 32px avatar
 // upscales ×2 and the 128px body downscales 2:1 — both exact, both crisp under
@@ -17,13 +17,9 @@ import type { Cell } from '../../pet/skins/store.ts';
 
 /** The filmstrip's fixed on-screen size. */
 export const THUMB_CSS = 64;
-/** The list row's small thumbnail.  32 is the one size that is an EXACT ratio
- *  of both crops (32 → 1:1, 128 → 1:4), so a row stays crisp at either face. */
-export const ROW_THUMB_CSS = 32;
 
 /** A static frame drawn into a canvas (one draw per change).  The frame is a
- *  FACE — a v9 `Cell` (rows plus an optional accent) at one crop — so the same
- *  component draws the filmstrip, an action's 4× body draft and a library row. */
+ *  FACE — a v9 `Cell` (rows plus an optional accent) at one crop. */
 export function FrameCanvas(props: { frame: Cell; palette: string[]; grid: number; css: number }) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const size = GRIDS[props.grid].grid;
@@ -34,7 +30,7 @@ export function FrameCanvas(props: { frame: Cell; palette: string[]; grid: numbe
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     // `spriteFor` memoizes by the frame object, so a thumbnail that comes back
-    // (undo, re-selecting an action) redraws a sprite that is already parsed.
+    // redraws a sprite that is already parsed.
     draw(ctx, spriteFor(props.frame), props.palette, 1, 0, 0);
   }, [props.frame, props.palette]);
   return h('canvas', {

@@ -1,4 +1,4 @@
-// The frame-animation model, shared by every skin — built-in and custom alike.
+// The frame-animation model, shared by every skin.
 //
 // ── the paired model (v9) ──
 //
@@ -20,22 +20,20 @@
 //   which is exactly what the headroom rule allows (`GRIDS[128].maxOffset` is
 //   `GRIDS[32].maxOffset × 4`), so one gesture means the same hop on both faces.
 //
-// ── the doors that produced it ──
-//
-// Two older shapes still exist in the wild and both upgrade, losslessly where
-// the data allows:
-//
-//   v7  `grids[g].states[state] = Take[]`      every state OWNED its takes
-//   v8  `grids[g] = { library, states }`       one library per crop, ids
-//   v9  `actions[] + states`                   one library, two faces  ← this file
+// ── the one door ──
 //
 // The baked built-in chunk (`artwork.gen.ts`, 15.9 MB of FROZEN data) is still
-// in the v8 shape on purpose: it is hand-maintained and its per-action
-// provenance comments are the catalog of what shipped, so the chunk goes
-// through `upgradeArtwork` at install time (a pass over 106 objects that SHARES
-// every row string by reference) instead of being rewritten by a codemod.
-// `upgradeArtwork` is the one door for a stored document, an import and the
-// built-in chunk.
+// in the v8 shape (one library per crop) on purpose: it is hand-maintained and
+// its per-action provenance comments are the catalogue of what shipped, so the
+// chunk goes through `upgradeArtwork` at install time (a pass over 106 objects
+// that SHARES every row string by reference) instead of being rewritten by a
+// codemod.  `pairArtwork` folds the two crops' libraries into the one paired
+// library, and the avatar crop is the authority for every shared setting.
+//
+// That is the ONLY shape transition left: nothing else can enter the system.
+// Artwork is authored (the chunk) or derived from authored data (the state
+// assignment diff, which is a list of ids and no pixels at all), so there is no
+// import path, no stored document and no legacy shape to migrate.
 
 import { AVATAR_GRID, BODY_FALLBACK_SCALE, BODY_GRID, GRIDS } from '../grids.ts';
 
@@ -74,13 +72,11 @@ export interface ActionFrame {
 
 /** One entry in the artwork's action library: an animation the ARTWORK owns,
  *  not a state.  States reference it by `id`, so any number of states can play
- *  the same action — editing it once changes every state that references it,
- *  and the pixels are stored once.
+ *  the same action — the pixels are stored once.
  *
  *   id      unique within the artwork (the reference states hold)
  *   name    a human label ('吃年糕'); built-ins get it from the map's gloss
- *   origin  provenance ('chi-niangao' — the source gif); also the merge key
- *           when the built-in library is imported into 我的创作
+ *   origin  provenance ('chi-niangao' — the source gif)
  */
 export interface Action {
   id: string;
@@ -91,7 +87,8 @@ export interface Action {
 }
 
 /** A whole skin: a palette, ONE action library and the ids each state plays.
- *  Built-ins and 我的创作 are the same shape. */
+ *  This is authored data — the built-in chunk is the only thing that produces
+ *  one, and `withOverrides` may re-point the state table at other ids. */
 export interface Artwork {
   palette: string[];
   actions: Action[];
@@ -100,10 +97,10 @@ export interface Artwork {
   states: Record<string, string[]>;
 }
 
-// ── the v8 shape (the baked chunk and a stored v8 document) ──
+// ── the v8 shape (the baked chunk, nothing else) ──
 
 /** One animation variant: a frame sequence with its own pace (the pre-v9
- *  frame shape, still the unit the v8 chunk and the shown takes use). */
+ *  frame shape, still the unit the v8 chunk is baked in). */
 export interface Take {
   frameMs: number;
   frames: Frame[];
@@ -138,18 +135,9 @@ export interface LibraryArtwork {
   };
 }
 
-/** The pre-v8 shape: every state OWNED its animations, so reuse was only ever
- *  a copy.  It is the shape of a v7 stored document. */
-export type LegacyStateTakes = Record<string, Take[]>;
-export interface LegacyArtwork {
-  palette: string[];
-  grids: {
-    [grid: number]: { states: LegacyStateTakes } | undefined;
-  };
-}
-
-/** Anything `upgradeArtwork` can be handed: a v7, v8 or v9 document. */
-export type AnyArtwork = Artwork | LibraryArtwork | LegacyArtwork;
+/** Anything `upgradeArtwork` can be handed: the baked v8 chunk, or a document
+ *  that is already v9. */
+export type AnyArtwork = Artwork | LibraryArtwork;
 
 export interface Sprite {
   w: number;
@@ -163,11 +151,11 @@ export interface Sprite {
   prop?: { w: number; h: number; px: Uint8Array; x: number; y: number };
 }
 
+/** The most action ids one state may play. */
 export const MAX_TAKES = 64;
 export const MAX_FRAMES = 8;
-/** How many actions the library can hold.  Its own cap, separate from the
- *  per-state one: the built-in whale already ships 106 actions, so a per-state
- *  cap could never bound the library. */
+/** How many actions an artwork's library may hold (the built-in whale ships
+ *  106). */
 export const MAX_LIBRARY = 128;
 export const MIN_FRAME_MS = 50;
 export const MAX_FRAME_MS = 5000;
@@ -191,11 +179,6 @@ export function hexPixel(idx: number): string {
 /** One pixel of a row, by grid column. */
 export function pixelAt(row: string, x: number): string {
   return row.slice(x * PIXEL_CHARS, (x + 1) * PIXEL_CHARS);
-}
-
-/** The palette index a pixel carries (0 = transparent). */
-export function pixelColour(tok: string): number {
-  return tok === TRANSPARENT ? 0 : parseInt(tok, 16);
 }
 
 /** How many grid pixels a row holds. */
@@ -252,12 +235,11 @@ export function parseFrame(frame: Frame | Cell): Sprite {
 
 /** `parseFrame`, memoized by the FRAME (or v9 CELL) object.
  *
- *  A frame is immutable and its rows are shared by reference through every
- *  copy-on-write edit, so the same frame object always parses to the same
- *  sprite — and keeping that identity is worth more than the parse: the
- *  renderer's bitmap cache is keyed by the sprite, so an untouched frame keeps
- *  its pre-rendered bitmap across a stroke, a skin switch and a re-resolve.
- *  Without it every write rebuilt every bitmap on screen. */
+ *  A frame is immutable and shared by reference, so the same frame object
+ *  always parses to the same sprite — and keeping that identity is worth more
+ *  than the parse: the renderer's bitmap cache is keyed by the sprite, so an
+ *  untouched frame keeps its pre-rendered bitmap across a skin switch and a
+ *  re-resolve. */
 const SPRITES = new WeakMap<object, Sprite>();
 
 export function spriteFor(frame: Frame | Cell): Sprite {
@@ -268,7 +250,8 @@ export function spriteFor(frame: Frame | Cell): Sprite {
   return sprite;
 }
 
-/** Serialize a sprite back into frame rows (the inverse of parseFrame). */
+/** Serialize a sprite back into frame rows (the inverse of parseFrame).  Used
+ *  by the suite to assert that a parsed face describes the authored rows. */
 export function spriteToRows(s: Sprite): string[] {
   const rows: string[] = [];
   for (let y = 0; y < s.h; y++) {
@@ -282,9 +265,8 @@ export function spriteToRows(s: Sprite): string[] {
   return rows;
 }
 
-/** Integer-upscale PIXEL rows (two chars per pixel) — the studio's draft from
- *  a smaller crop, and the body fallback.  Offsets are the caller's business. */
-export function upscalePixels(rows: string[], scale: number): string[] {
+/** Integer-upscale PIXEL rows (two chars per pixel) — the body fallback. */
+function upscalePixels(rows: string[], scale: number): string[] {
   const out: string[] = [];
   for (const row of rows) {
     let wide = '';
@@ -294,15 +276,9 @@ export function upscalePixels(rows: string[], scale: number): string[] {
   return out;
 }
 
-/** The grid a frame grid's rows describe (their width in pixels). */
-export function gridOfGrid(rows: string[]): number {
-  const w = rowPixels(rows[0] || '');
-  return GRIDS[w] ? w : 0;
-}
-
 /** Integer-upscale one FACE (its rows and its accent) by the avatar→body
- *  factor: the 128 draft the studio materialises, and the fallback the popup
- *  draws when an action has no body artwork of its own. */
+ *  factor: the fallback the popup draws when an action has no body artwork of
+ *  its own. */
 export function upscaleCell(cell: Cell): Cell {
   const out: Cell = { rows: upscalePixels(cell.rows, BODY_FALLBACK_SCALE) };
   if (cell.prop) {
@@ -339,113 +315,14 @@ export function cellFor(frame: ActionFrame, grid: number): Cell {
   return hit;
 }
 
-/** One empty grid's rows (no import from paint.ts: that module imports this
- *  one, and the v8 door needs a blank avatar for a body-only action). */
+/** One empty grid's rows (the v8 door needs a blank avatar for a body-only
+ *  action, and `cellFor` needs one for a grid it cannot serve). */
 function blanks(grid: number): string[] {
   return Array.from({ length: grid }, () => TRANSPARENT.repeat(grid));
 }
 
-// ── the library: identity, dedupe, and the doors from the older shapes ──
-//
-// Two things make the library work, and neither belongs in the store: an id
-// that survives editing (states hold ids, so deleting an action can never
-// shift what another state points at — the old index-based model did exactly
-// that), and a CONTENT KEY, which is how the same action authored twice
-// collapses into one shared entry.
-
-/** A stable, readable id that is free in this library.  `base` keeps a
- *  built-in's provenance legible ('chi-niangao'); anything invalid or already
- *  taken falls back to `t<n>`, so ids stay unique. */
-export function freeTakeId(library: readonly { id: string }[], base?: string): string {
-  const clean = (base || '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
-  if (clean) {
-    if (!library.some((t) => t.id === clean)) return clean;
-    for (let n = 2; ; n++) {
-      const id = clean + '-' + n;
-      if (!library.some((t) => t.id === id)) return id;
-    }
-  }
-  for (let n = 1; ; n++) {
-    const id = 't' + n;
-    if (!library.some((t) => t.id === id)) return id;
-  }
-}
-
-/** One v8 take's identity by CONTENT: two takes with the same key draw
- *  identically, so a migration may safely share one entry.
- *
- *  The key is memoized per take OBJECT (a WeakMap, not a string table): every
- *  mutator builds a fresh take object, so a cached key can never describe
- *  edited pixels, while a scan of an unchanged library pays for each entry
- *  exactly once. */
-const KEY_CACHE = new WeakMap<object, string>();
-
-export function takeKey(take: Take): string {
-  const hit = KEY_CACHE.get(take as object);
-  if (hit !== undefined) return hit;
-  let key = String(take.frameMs);
-  for (const f of take.frames) {
-    key += '\u0001' + f.rows.join('\u0002')
-      + '\u0003' + (f.dx || 0) + ',' + (f.dy || 0) + ',' + (f.ms ?? '');
-    if (f.prop) key += '\u0004' + f.prop.x + ',' + f.prop.y + ',' + f.prop.rows.join('\u0002');
-  }
-  KEY_CACHE.set(take as object, key);
-  return key;
-}
-
-/** One ACTION's identity by CONTENT — both faces, the shared settings and the
- *  name/provenance, so an import that changes any of them is not mistaken for
- *  an identical action.  Memoized per action object, like `takeKey`. */
-export function actionKey(action: Action): string {
-  const hit = KEY_CACHE.get(action as object);
-  if (hit !== undefined) return hit;
-  let key = String(action.frameMs) + '\u0005' + (action.name ?? '') + '\u0006' + (action.origin ?? '');
-  for (const f of action.frames) {
-    key += '\u0001' + (f.ms ?? '') + '\u0003' + (f.dx || 0) + ',' + (f.dy || 0);
-    for (const grid of [AVATAR_GRID, BODY_GRID]) {
-      const cell = f.cells[grid];
-      if (!cell) continue;
-      key += '\u0007' + grid + '\u0002' + cell.rows.join('\u0002');
-      if (cell.prop) key += '\u0004' + cell.prop.x + ',' + cell.prop.y + ',' + cell.prop.rows.join('\u0002');
-    }
-  }
-  KEY_CACHE.set(action as object, key);
-  return key;
-}
-
-/** Add one ACTION to the library, deduping by content: an identical action
- *  already in the library is SHARED instead of stored twice.  Returns the
- *  (possibly unchanged) library plus the id to reference.
- *
- * The id comes from `meta.id` first, then from the action's own id (an imported
- * or migrated action carries the reference states hold), and is made unique by
- * `freeTakeId` — a colliding id is suffixed, never overwritten.
- *
- * `meta.unique` opts OUT of the content dedupe.  新建动作 needs it: an identical
- * blank is already in the library, and silently sharing it would make the
- * button look broken the second time it is pressed.  Merging — a migration —
- * wants the dedupe. */
-export function addToLibrary(
-  library: Action[],
-  action: Action,
-  meta?: { id?: string; name?: string; origin?: string; unique?: boolean },
-): { actions: Action[]; id: string } {
-  const key = actionKey(action);
-  const hit = meta?.unique ? undefined : library.find((t) => actionKey(t) === key);
-  if (hit) return { actions: library, id: hit.id };
-  const wanted = meta?.id || action.id;
-  const id = wanted ? freeTakeId(library, wanted) : freeTakeId(library);
-  const entry: Action = { id, frameMs: action.frameMs, frames: action.frames };
-  const name = meta?.name ?? action.name;
-  const origin = meta?.origin ?? action.origin;
-  if (name) entry.name = name;
-  if (origin) entry.origin = origin;
-  return { actions: library.concat([entry]), id };
-}
-
-/** Does this action carry any body artwork?  The body is a SKIN-level switch
- *  in practice (the editor materialises it for a whole action at a time), and
- *  a body-less action falls back to its avatar at 4×. */
+/** Does this action carry any body artwork?  A body-less action falls back to
+ *  its avatar at 4×. */
 export function hasActionBody(action: Action): boolean {
   return action.frames.some((f) => !!f.cells[BODY_GRID]);
 }
@@ -464,42 +341,7 @@ export function offsetScale(grid: number): number {
   return grid === BODY_GRID ? BODY_FALLBACK_SCALE : 1;
 }
 
-// ── the doors ──
-
-/** v7 → v8: convert a state-owned artwork into the per-crop library model.
- *
- * Deterministic and lossless: states are visited in their authored order, and
- * each take goes in through a content-deduping add, so a take copied across
- * three states becomes ONE shared entry referenced three times — the document
- * shrinks and the copies can no longer drift.  Frames and row strings are
- * shared by reference, never copied. */
-export function libraryFromLegacy(legacy: LegacyArtwork): LibraryArtwork {
-  const grids: LibraryArtwork['grids'] = {};
-  for (const key of Object.keys(legacy.grids)) {
-    const grid = Number(key);
-    const g = legacy.grids[grid];
-    if (!g || !g.states) continue;
-    let library: LibraryTake[] = [];
-    const states: Record<string, string[]> = {};
-    for (const state of Object.keys(g.states)) {
-      const ids: string[] = [];
-      for (const take of g.states[state] || []) {
-        const key2 = takeKey(take);
-        const hit = library.find((t) => takeKey(t) === key2);
-        if (hit) {
-          ids.push(hit.id);
-          continue;
-        }
-        const id = freeTakeId(library);
-        library = library.concat([{ ...take, id }]);
-        ids.push(id);
-      }
-      states[state] = ids;
-    }
-    grids[grid] = { library, states };
-  }
-  return { palette: legacy.palette, grids };
-}
+// ── the v8 → v9 door ──
 
 /** One v8 take + its body counterpart → one paired action.  `av` is the
  *  authority for every shared setting; `body` only contributes the 128 face. */
@@ -514,7 +356,7 @@ function pairAction(av: LibraryTake | undefined, body: LibraryTake | undefined):
       f ? (f.prop ? { rows: f.rows, prop: f.prop } : { rows: f.rows }) : undefined;
     const frame: ActionFrame = {
       // The avatar face is REQUIRED by validation: a body-only action keeps its
-      // pixels (nothing is dropped) behind a blank avatar the user can draw on.
+      // pixels (nothing is dropped) behind a blank avatar face.
       cells: { 32: face(fa) || { rows: blanks(AVATAR_GRID) } },
     };
     const from = fa || fb!;
@@ -539,7 +381,7 @@ function pairAction(av: LibraryTake | undefined, body: LibraryTake | undefined):
  * The AVATAR crop is the authority: its action order, its `frameMs`/`ms`/
  * offsets/name, and its state assignment.  The body crop contributes the 128
  * face of every action id it shares, and any action only the body carries is
- * KEPT (unplayed, with a blank avatar) rather than dropped — a migration may
+ * KEPT (unplayed, with a blank avatar) rather than dropped — the pairing may
  * lose an assignment, never artwork. */
 export function pairArtwork(v8: LibraryArtwork): Artwork {
   const av = v8.grids[AVATAR_GRID];
@@ -581,34 +423,13 @@ export function looksV8(d: unknown): boolean {
   });
 }
 
-/** Does this look like the pre-v8 shape (a state owning take OBJECTS)? */
-export function looksV7(d: unknown): boolean {
-  const a = d as LegacyArtwork | null;
-  if (!a || typeof a !== 'object' || !a.grids || typeof a.grids !== 'object') return false;
-  for (const key of Object.keys(a.grids)) {
-    const g = a.grids[Number(key)] as { states?: LegacyStateTakes } | undefined;
-    if (!g || typeof g !== 'object' || !g.states || typeof g.states !== 'object') continue;
-    for (const state of Object.keys(g.states)) {
-      const list = g.states[state];
-      if (!Array.isArray(list)) continue;
-      if (!list.length) return true;
-      const first = list[0] as Take;
-      if (first && typeof first === 'object' && Array.isArray(first.frames)) return true;
-    }
-  }
-  return false;
-}
-
-/** THE upgrade door: any older shape → a v9 `Artwork`, or null when the input
- *  cannot be understood.  A v9 document is passed straight through (the caller
- *  validates it); a v8 one is paired; a v7 one goes through the library door
- *  first.  Used by the storage migration, the import path and the built-in
- *  chunk alike, so there is exactly one place where the shapes meet.
+/** THE door: a v8 document → a v9 `Artwork`, or null when the input cannot be
+ *  understood.  A v9 document is passed straight through.  The built-in chunk
+ *  is the only caller.
  *
- *  Memoized by the input OBJECT: the chunk is installed once, but a stored
- *  document is re-read through this door on every `loadStored` revision, and a
- *  resolution cache is keyed by artwork identity — so the same input must give
- *  back the same artwork rather than a fresh equal one. */
+ *  Memoized by the input OBJECT: a resolution cache is keyed by artwork
+ *  identity — so the same input must give back the same artwork rather than a
+ *  fresh equal one. */
 const UPGRADED = new WeakMap<object, Artwork | null>();
 
 export function upgradeArtwork(input: unknown): Artwork | null {
@@ -618,7 +439,6 @@ export function upgradeArtwork(input: unknown): Artwork | null {
   let out: Artwork | null;
   if (looksV9(input)) out = input as Artwork;
   else if (looksV8(input)) out = pairArtwork(input as LibraryArtwork);
-  else if (looksV7(input)) out = pairArtwork(libraryFromLegacy(input as LegacyArtwork));
   else out = null;
   UPGRADED.set(key, out);
   return out;

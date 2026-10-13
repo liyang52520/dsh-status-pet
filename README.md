@@ -94,43 +94,39 @@ optional without ever breaking the pair.
 
 The plugin ships one skin, **Whale-chan** (鲸鱼娘) — a white lace headdress with
 a DeepSeek-blue bow, navy hair with bright blue tips, whale-fin ears, and an
-apron with a tiny whale logo. Everything else is yours to draw:
+apron with a tiny whale logo. Her pixels are hers; what is yours is **what she
+does while she does it**:
 
 ![Skins](docs/media/skins.png)
 
-- **Skins** — pick Whale-chan, or **我的创作 / My Creation**, which starts as a
-  copy of the current skin and is then yours. Switching applies instantly, no
-  reload. To change a built-in's pixels or colours, take it into 我的创作.
+- **Skins** — pick Whale-chan from the cards at the top of her settings tab. The
+  choice applies instantly, no reload, and survives one too.
 - **An action library, not eleven separate animations** — the skin holds ONE
-  library of **actions** (up to 128), each one animation with **two faces** (the
-  avatar and the optional body), and every state simply **ticks the ones it
-  plays**. Up to **8 frames** per action, each frame a full grid you
-  paint freely in the studio — one click, one pixel, **no forced mirroring**, so
-  a wink is drawable — and the frame count, pace and nudge are shared by both
-  faces, so the head and the body can never drift apart. Tick one action in
-  several states and it is *reused*: the editor says 「被 3 个状态在用」, and
-  editing it once changes all three. A state with nothing ticked follows Idle.
-  **新建动作** mints a fresh slot and **删除动作** removes one (a library's two
-  guarded deletions — the last action, and Idle's only action — are refused).
-  Per-frame timing and a
-  whole-frame nudge (the way to
-  make a bob or a sway) are in the frame row; each action also carries one shared
-  pace. The filmstrip does 复制一帧 / 空白帧 / 删除此帧, so a whole animation is
-  drawn a frame at a time.
-- **The paint box** — six free colour wells beside the board. Click one to paint
-  with it, click it again to change its colour with your OS picker. What you
-  paint with is baked into the pixels, so editing a brush never repaints what
-  you already drew. Right-click a pixel to pick its colour up onto the current
-  brush; the `×` well erases. Your paint box survives a reload.
-- **Both faces** — draw the 32×32 avatar (always required) and, for any action
-  you like, its 128×128 body. The 128 board offers a 4× draft of that action — or
-  of every action at once — so a body-less action still shows something in the
-  popup: the avatar at a crisp 4× upscale. The 头像 / 全身 row on top of the
-  canvas picks which FACE you are drawing, never which library.
+  library of **106 actions**, each one animation with **two faces** (the 32×32
+  avatar the dock draws, and the 128×128 body the popup draws). Every state
+  simply **ticks the actions it plays**: up to 64 per state, played in rotation,
+  each take held for several loops before the next is rolled.
+- **Tick one action in several states and it is *reused*.** The row says
+  「被 3 个状态在用」, because there is one definition behind it. A state with
+  nothing ticked follows 空闲 / Idle.
+- **`idle` can never be emptied** — every unassigned state falls back to it — so
+  清空 on 空闲 keeps its first action and asks you first, and every other state
+  clears to empty on the spot.
+- **Every row is a preview.** 106 animations cannot be chosen from a list of
+  names: each row carries a 1:1 picture of its action, and pointing at (or
+  tabbing to) one plays it **live in the header**, at the popup's size.
 
-Nothing you can do in the studio can break the pet: every load validates the
-stored artwork, and a corrupt or hand-edited store falls back to the whale
-instead of blanking her.
+Your assignment is stored as a small **diff** beside the frozen artwork — a few
+hundred bytes of action ids — so a state you never touched keeps following the
+artwork, and nothing you can do here can break her: an unknown id, a corrupt
+store or a payload from another version falls back to the whale instead of
+blanking her.
+
+> Earlier builds shipped a full pixel studio (draw your own skin, frame by frame).
+> DRAWING was removed in the v10 schema — it was the largest and most invasive part of
+> the codebase — but the 动作 page stayed, as a viewer: the same picker, board and
+> filmstrip, with every writing control simply not rendered. The studio itself is still
+> in `git log` if you ever want it back.
 
 ## Install
 
@@ -162,50 +158,40 @@ change; hover her to see the state named.
 
 ## Her settings tab
 
-Open DSH Settings and pick **状态宠物 / Status Pet** in the nav. The page is the
-skin cards on top, then **one axis** — and that is the whole navigation.
+Open DSH Settings and pick **状态宠物 / Status Pet** in the nav. The page is the skin
+cards, then **one axis** — 状态 / 动作 — and that is the whole navigation.
+
+**状态 / States is where you change things; 动作 / Actions is where you look.**
+
+**皮肤 / Skin** — one card per built-in, each a live portrait drawn at 2×.
+Selecting applies at once.
 
 **状态 / States — a light list beside its edit.** The left column is eleven
 one-line rows, one per state (the reactions sit under their own 反应 caption, because
 a reaction is not something she is *doing*): the name, and what that state plays
 (「3 个动作」 or 「跟随空闲」 — the one place a state you forgot to tick anything for is
 visible). No pictures here — that would be the same face eleven times — and no search,
-because eleven rows do not need one; her picture is the one in the header. Click a row and the right half follows it: the state live and named
+because eleven rows do not need one; her picture is the one in the header. Click a row
+and the right half follows it: the state live and named
 once with what it means, then the library as one checkbox per action saying whether
-this state plays it. Each row carries a little 1:1 picture of its action, and pointing
-at a row plays it **live in the header** — 106 animations cannot be chosen from a list
-of names. The actions the state already plays are listed **first** under an
-已勾给该状态 header, with 其他动作 below; each half keeps the library's order, the
-search box scopes 全选 (which sits on the same line as 清空), and 清空 empties any
-state — on 空闲 it asks first, because every unassigned state follows 空闲 and it would
-otherwise have nothing to draw.
+this state plays it. Each row's little 1:1 picture **plays its own action** (so a bob or
+a blink is visible in the list), and pointing at a row plays it big in the header. The actions the state already plays are
+listed **first** under an 已勾给该状态 header, with 其他动作 below; each half keeps
+the library's order, the search box scopes 全选 (which sits on the same line as 清空),
+and 清空 empties any state — on 空闲 it asks first, because every unassigned state
+follows 空闲 and it would otherwise have nothing to play.
 
-**动作 / Actions — the studio at full width.** Its 动作 row is TWO lines: the picker
-with 新建动作 / 删除动作 beside it, and the action's NAME below. The picker is ONE
-control: a dropdown that searches, previews and selects. Closed it reads out the action on the
-board; open it lists every animation with a thumbnail and its read-out, filtering as
-you type (↑/↓ and Enter work too). The board therefore gets the whole pane — at the
-settings dialog's real width (~555px) a side-by-side library list would leave it
-325px, which is 2.5 pixels per pixel of a 128 face. Below it: 画布 / 帧 / 画笔 /
-当前帧. Nothing on this side mentions a state.
+**动作 / Actions — the whole library, one animation at a time.** The board shows one
+action at 1:1, with its live preview beside it at the popup's own display size, and the
+filmstrip under it steps through that action's frames. The picker is ONE control: closed
+it names the action on the board, open it lists all 106 — each row a **playing**
+thumbnail plus its read-out — filtering as you type (↑/↓ and Enter work too). 头像 / 全身 sits in a row on top of
+the board, because it changes what you are looking at.
 
-**The left column is the door** and there is nothing else to hunt for: no 预览 / 编辑
-tabs, no per-cell ✎, no separate 批量删除 screen — 批量删除 lives in the picker's
-footer (the rows become checkboxes, the search still scopes the selection), because
-that is where the library is.
-
-**头像 / 全身 sits in a row on top of the canvas** — the one place where the answer
-changes what you do. Beside the board is a small live preview (the popup's own
-display size, no caption, nothing to click) so the pair always fits on one row.
-Everywhere else a preview simply asks for the most detailed face there is.
-
-**Every skin gets the same two views** — a built-in's 动作 page is a **viewer** of the
-same studio: the picker, the board and the filmstrip are there to look through, and every
-control that would write (the action ops, the frame ops, the brushes, the frame numbers,
-undo/import) is simply absent. Nothing there edits or copies anything, on one click or on
-any other — to draw, pick **我的创作**, which seeds itself from the current skin. A
-built-in can still be re-assigned freely in 状态, and your undo history survives a trip to
-the other view.
+This view **only looks**: the pixels are baked into the plugin and frozen, so there is no
+新建动作 / 删除动作, no frame editing, no brushes and no frame numbers — a click on the
+board does nothing at all. (There used to be a full pixel studio here; see the note
+above.)
 
 ## Good to know
 
@@ -226,11 +212,12 @@ the other view.
   JS plus the React the DSH web shell already has.
 - **Skins are data** — a skin is one artwork document (a palette, an action
   library whose entries carry both faces, and which action ids each state plays),
-  which is why a built-in and 我的创作 are the same thing, and both are swappable
-  at runtime.
-- **Old drawings are upgraded, not dropped** — a store from the previous schema
-  is converted on read, and the conversion *shares*: a take that used to be
-  copied into three states becomes one action they all reference.
+  and the user's whole footprint on it is a diff that re-points states at other
+  ids. That is why the store is a few hundred bytes and a write is instant.
+- **An older payload is migrated, not dropped** — a store from the previous
+  schema keeps the skin choice and its state assignment; the keys the studio era
+  wrote (`custom`, `brushes`) are dropped, and a skin name we no longer ship
+  falls back to the default skin.
 
 ---
 
@@ -262,38 +249,40 @@ files are the plumbing.
 | `pet/behavior.ts` | `TUNING` rhythm knobs, the pure `derivePetState` state machine, the state vocabulary and the reaction table |
 | `pet/grids.ts` | Body plan: both grids' geometry (`canvasW/H`, `baseY`, `padX`, `maxOffset`) and `LIVE_ZOOM` |
 | `pet/labels.ts` | Every visible string, en + zh, plus the translator fallback |
-| `pet/skins/` | The wardrobe, one concern per module: the model (`compose.ts`), validation (`validate.ts`), the upgrade door (`convert.ts`), the pixel primitives (`paint.ts`), the action library (`library.ts`), persistence (`storage.ts`), document reads + import/export (`documents.ts`) and resolution (`resolve.ts`) — with `store.ts` as the single entry point |
+| `pet/skins/` | The wardrobe, one concern per module: the paired model + the shape door (`compose.ts`), the library reads and the state assignment (`library.ts`), the authored chunk's invariant check (`validate.ts`, test-only), persistence and its migration (`storage.ts`), document reads + the assignment diff (`documents.ts`) and resolution (`resolve.ts`) — with `store.ts` as the single entry point |
 | `pet/skins/built-ins.ts` | The built-in registry, filled from the artwork chunk |
 | `renderer/draw.ts` | The pixel plotter (sprite + accent → canvas) |
 | `renderer/sprite-cache.ts` | Pre-rendered offscreen bitmaps, so a frame is one `drawImage` |
 | `renderer/take-rotation.ts` | The pure take-hold policy: how many plays one take gets before the next is rolled |
 | `renderer/loop.ts` | One shared rAF ticker + the frame player (`zoom` scales the CSS box only) |
 | `ui/dock-pet.ts` · `ui/dock-popup.ts` | The two live layers: the dock pill and its click popup |
-| `ui/pet-preview.ts` | The one pet-drawing component (popup, detail panes, skin cards, studio) |
+| `ui/pet-preview.ts` | The one pet-drawing component (popup, state header, skin cards) |
 | `ui/hooks.ts` · `ui/styles.ts` | Session props → pet facts + reactions, and the inlined stylesheet |
-| `ui/settings/` | The Workshop: the page shell (skin cards + axis + the state list), the skin picker, the state's edit surface, the pixel studio, and the searchable action picker |
+| `ui/settings/` | The Workshop: the page shell (skin cards + the state list), the skin picker, and the state's edit surface (`assignments.ts`), with a row thumbnail (`frame-canvas.ts`) and one labelled field (`field.ts`) |
 | `main.ts` · `host-deps.ts` | Registration at the fixed `DOCK_ORDER`, and the only module touching the loader's `require` |
 
-### Editing is fast because every cache is keyed by identity
+### Every cache is keyed by identity
 
-Artwork is immutable: every studio operation builds fresh objects and shares
-everything it did not change by reference. So "this is the same object" is a
-sound statement about "this work is already done", and every cache in the
-wardrobe is keyed that way:
+Artwork is immutable, and the assignment shares the pixel library by reference —
+a tick is a new state table over the very same action objects. So "this is the
+same object" is a sound statement about "this work is already done", and every
+cache in the wardrobe is keyed that way:
 
-- **validation** is memoized per action, so painting one pixel re-checks that one
-  action (~1 ms) instead of the whole 15 MB document (~35 ms);
-- **resolution** is memoized per artwork, and frames parse into sprites memoized
-  per frame — so an edit re-parses and re-rasterizes the frame you painted and
-  re-uses every other bitmap on screen, which is what makes painting and
-  switching skins smooth;
-- **persistence is coalesced**: the document lives in memory and localStorage is
-  a snapshot. Small writes (skin choice, paint box) go straight through; a large
-  document is serialized once per editing burst instead of once per pixel, and
-  flushed when you pause or leave the page. Thirty painted pixels cost one
-  snapshot, not thirty.
+- **resolution** is memoized per artwork and per (skin, grid), and frames parse
+  into sprites memoized per frame — so re-pointing a state re-resolves a skin
+  whose every sprite, and therefore every pre-rendered bitmap, is the one already
+  on screen;
+- **the 4× body draft** (an action with no body face) is memoized per
+  (frame, face);
+- **the assignment diff** is applied once per (artwork, diff) pair, and a write
+  that changes nothing does not happen at all: no serialization, no re-resolve,
+  no broadcast;
+- **persistence is write-through**, because the payload is a few hundred bytes —
+  there is no editing burst to coalesce and nothing to flush on `pagehide`.
 
-`pnpm bench` prints the numbers for all of it.
+`pnpm bench` prints the numbers: the chunk landing, a cold and a warm resolve,
+the 106 row previews, one tick and a burst of forty, measuring what a tick costs
+localStorage in bytes.
 
 ### The artwork is baked, and now frozen
 
@@ -317,14 +306,16 @@ pnpm install        # once
 pnpm build          # tsdown: src/ → client.js  (or: pnpm dev, watching)
 pnpm test           # builds first, then runs the node:test suite
 pnpm typecheck      # tsc --noEmit
+pnpm bench          # the store hot paths, against the real modules
 ```
 
 The suite drives the real modules — the components with a stubbed React and slot
 props, the frame player with a stubbed canvas, rAF and clock, the rotation
 policy directly, plus a smoke test of the built `client.js`. It covers the state
 truth table, interactions, localisation, registration, artwork geometry and the
-anti-clipping guard on every animation, the skin store and the studio. It needs
-no browser; appearance itself needs eyes on a running instance.
+anti-clipping guard on every animation, the pairing door, the assignment diff and
+its sanitizing, and the shipped stylesheet (the studio's rules must stay gone).
+It needs no browser; appearance itself needs eyes on a running instance.
 
 ### README images
 

@@ -28,40 +28,33 @@ test('every state and reaction is labelled in every locale', () => {
 
 test('every settings string is labelled in every locale', () => {
   const required = [
-    'settings.nav', 'settings.previewHint', 'settings.skins', 'settings.grid.32', 'settings.grid.128',
-    'settings.brushN', 'settings.eraser',
-    'settings.genBody', 'settings.delFrame', 'settings.frameMs',
-    'settings.followIdle', 'settings.addFrame', 'settings.emptyBody',
-    'settings.blankBody', 'settings.region.action', 'settings.region.canvas',
-    'settings.region.frames', 'settings.region.palette', 'settings.field.frames',
-    // The assignment surface (编辑 · 按状态): its dropdown, its list and its ops.
-    'settings.region.library', 'settings.libraryHint', 'settings.actionCount', 'settings.actionN',
-    'settings.actionName', 'settings.actionNameHint', 'settings.actionMs', 'settings.actionMsHint',
-    'settings.newAction', 'settings.deleteAction', 'settings.deleteUsed',
-    'settings.usedByN', 'settings.unusedAction',
-    'settings.playedHere', 'settings.emptyLibrary',
-    'settings.libraryFull', 'settings.selectAll', 'settings.clearSelection',
-    // Finding an action in a 106-entry library, and editing several at once.
-    'settings.searchActions', 'settings.searchMatches', 'settings.searchEmpty',
-    'settings.comboPlaceholder', 'settings.comboEmpty',
-    'settings.confirmDeleteTitle', 'settings.confirmDeleteHint',
-    'settings.cancel', 'settings.confirmDelete',
-    'settings.selectedCount', 'settings.selectedMax',
-    'settings.manageActions', 'settings.bulkHint', 'settings.deleteSelected',
-    'settings.deleteBlocked', 'settings.actionsRemoved',
-    // The seam between the two views: a row opens its own detail, and a state
-    // row hands one of its actions to the board.
-    'settings.actionHint',
-    'settings.clearIdleHint',
+    'settings.nav', 'settings.previewHint', 'settings.skins',
     // The ONE axis, the two faces, and the master / detail split.
     'settings.view', 'settings.view.states', 'settings.view.actions',
-    'settings.face',
+    'settings.face', 'settings.grid.32', 'settings.grid.128',
     'settings.grid.32Hint', 'settings.grid.128Hint',
-    'settings.master.states', 'settings.master.reactions',
-    'settings.actionFrames',
-    ...['idle','sleep','think','stream','tool','approval','question','error','done','petted','woken'].map((n) => 'settings.hint.' + n),
+    // The master list of the eleven states, and the picture in the edit header.
+    'settings.master.states', 'settings.master.reactions', 'settings.previewing',
+    // The 动作 view: the library, one action at a time — a picker, a board and
+    // a filmstrip, and nothing that writes.
+    'settings.region.action', 'settings.actionHint', 'settings.region.canvas',
+    'settings.region.frames', 'settings.field.frames', 'settings.frameN',
+    'settings.comboPlaceholder', 'settings.comboEmpty', 'settings.actionFrames',
+    'settings.noBody', 'settings.emptyBody',
+    // The assignment surface: its library, its groups and its ops.
+    'settings.region.library', 'settings.libraryHint',
+    'settings.actionCount', 'settings.actionN',
+    'settings.usedByN', 'settings.unusedAction', 'settings.playedHere', 'settings.emptyLibrary',
+    'settings.libraryTickedGroup', 'settings.libraryRestGroup',
+    'settings.selectAll', 'settings.clearSelection',
+    // Finding an action in a 106-entry library.
+    'settings.searchActions', 'settings.searchMatches', 'settings.searchEmpty',
+    'settings.selectedMax', 'settings.cancel', 'settings.followIdle',
+    // The one rule that cannot be guessed: 空闲 keeps an action.
+    'settings.clearIdleTitle', 'settings.clearIdleHint',
+    ...['idle', 'sleep', 'think', 'stream', 'tool', 'approval', 'question', 'error', 'done', 'petted', 'woken']
+      .map((n) => 'settings.hint.' + n),
     ...BUILTIN_NAMES.map((n) => 'settings.skin.' + n),
-    'settings.skin.custom', 'settings.skin.customHint',
   ];
   const missing: string[] = [];
   for (const key of required) {
@@ -69,6 +62,32 @@ test('every settings string is labelled in every locale', () => {
     if (!zh.has(key)) missing.push('zh:' + key);
   }
   assert.deepEqual(missing, []);
+});
+
+test('the customisation keys left with the feature', () => {
+  // Nothing may keep a string alive for a control that no longer exists.
+  const gone = [
+    // The studio's writing controls.
+    'settings.brushN', 'settings.eraser', 'settings.region.palette', 'settings.region.preview',
+    'settings.region.frame',
+    'settings.newAction', 'settings.deleteAction', 'settings.deleteUsed', 'settings.actionName',
+    'settings.actionNameHint', 'settings.actionMs', 'settings.actionMsHint',
+    'settings.libraryFull', 'settings.manageActions', 'settings.bulkHint', 'settings.deleteSelected',
+    'settings.deleteBlocked', 'settings.actionsRemoved', 'settings.confirmDeleteTitle',
+    'settings.confirmDeleteHint', 'settings.confirmDelete', 'settings.selectedCount',
+    'settings.addFrame', 'settings.addBlankFrame', 'settings.delFrame', 'settings.frameMs',
+    'settings.frameLen', 'settings.frameOffset', 'settings.frameOffsetHint', 'settings.offsetReset',
+    'settings.frameProp', 'settings.framePropClear', 'settings.framePropHint',
+    'settings.moveUp', 'settings.moveDown', 'settings.moveLeft', 'settings.moveRight',
+    'settings.genBody', 'settings.genBodyAll', 'settings.genBodyAllHint',
+    'settings.genBodyAllDone', 'settings.blankBody',
+    // …and the custom skin itself.
+    'settings.skin.custom', 'settings.skin.customHint',
+  ];
+  for (const key of gone) {
+    assert.equal(en.has(key), false, 'en:' + key + ' left with the studio');
+    assert.equal(zh.has(key), false, 'zh:' + key + ' left with the studio');
+  }
 });
 
 test('the dictionaries carry identical key sets', () => {

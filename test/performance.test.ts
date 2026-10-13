@@ -1,18 +1,16 @@
-// The hot-path CONTRACTS — the mechanisms that make editing cheap, asserted
-// without a stopwatch (wall-clock thresholds are the benchmark's job:
-// `node bench/store.mjs`).
+// The hot-path CONTRACTS — the mechanisms that keep the pet and the settings
+// page cheap, asserted without a stopwatch (wall-clock thresholds are the
+// benchmark's job: `node bench/store.mjs`).
 //
 // Three mechanisms carry the performance work, and each can be observed
 // directly:
 //
-//   1. IDENTITY-KEYED CACHES.  Artwork is immutable, every mutator shares what
-//      it did not change by reference, so "this object is the same object" is
-//      a sound statement about "this work was already done".  A one-face edit
-//      must leave every other action, frame, FACE and sprite IDENTICAL — the
-//      other face of the very action being painted included.
-//   2. THE COALESCED SNAPSHOT.  A big document must not be serialized per
-//      painted pixel: memory is live immediately, localStorage follows on a
-//      flush.
+//   1. IDENTITY-KEYED CACHES.  Artwork is immutable and the assignment shares
+//      the pixel library BY REFERENCE, so "this object is the same object" is a
+//      sound statement about "this work was already done".  A state tick must
+//      leave every action, frame, FACE and sprite IDENTICAL.
+//   2. THE WRITE-THROUGH SNAPSHOT.  What is stored is a list of ids, so the
+//      snapshot is written on the spot — and it must never grow artwork.
 //   3. THE USAGE INDEX.  usedBy is one pass per artwork, not a scan per ask.
 
 import { test } from 'node:test';
@@ -37,165 +35,94 @@ let writes = 0;
 const store = await import('../src/pet/skins/store.ts');
 const { ARTWORK } = await import('../src/artwork.gen.ts');
 const { AVATAR_GRID, BODY_GRID } = await import('../src/pet/grids.ts');
+const SKIN = store.DEFAULT_SKIN;
 store.installSkinArtwork(ARTWORK as never);
 
-const clearStorage = () => {
-  store.flushStored();
+/** Back to an empty store, with the in-memory copy dropped so the next read
+ *  re-parses what storage actually holds. */
+const reset = () => {
   storeMem.clear();
+  store.loadStored();
   store.refreshActiveSkin();
 };
 
-const face = (grid: number, over: Record<string, unknown> = {}) => ({ rows: store.blankRows(grid), ...over });
-
-/** A small two-action artwork: each action carries BOTH faces, and the two
- *  actions are different, so "did the edit touch this one?" is observable. */
+/** A small local artwork for the pure library/derivation contracts: the store
+ *  never sees it, so these tests do not depend on the shipped chunk's shape. */
+const blank = (grid: number) => Array.from({ length: grid }, () => '..'.repeat(grid));
 const fixture = () => ({
-  palette: ARTWORK['whale-chan'].palette.slice(0, 7),
+  palette: ['transparent', '#111111'],
   actions: [
-    {
-      id: 'one',
-      frameMs: 400,
-      frames: [{ cells: { [AVATAR_GRID]: face(AVATAR_GRID), [BODY_GRID]: face(BODY_GRID) } }],
-    },
-    {
-      id: 'two',
-      frameMs: 400,
-      frames: [{ cells: { [AVATAR_GRID]: face(AVATAR_GRID), [BODY_GRID]: face(BODY_GRID) } }],
-    },
+    { id: 'one', frameMs: 400, frames: [{ cells: { [AVATAR_GRID]: { rows: blank(AVATAR_GRID) } } }] },
+    { id: 'two', frameMs: 400, frames: [{ cells: { [AVATAR_GRID]: { rows: blank(AVATAR_GRID) } } }] },
   ],
   states: { idle: ['one'], tool: ['two'] },
 }) as any;
 
-test('a one-face edit leaves every other action, frame, face and sprite identical', () => {
-  clearStorage();
-  const art = fixture();
-  store.saveStored({ skin: 'custom', custom: art });
-  const before = store.loadCustomArtwork()!;
-  const one = before.actions[0] as any;
-  const two = before.actions[1] as any;
-
-  // Sprites are memoized by the FACE object, so the renderer's bitmap cache
-  // (keyed by the sprite) survives a re-resolve.
-  assert.equal(store.spriteFor(one.frames[0].cells[AVATAR_GRID]),
-    store.spriteFor(one.frames[0].cells[AVATAR_GRID]),
-    'parsing the same face twice gives the same sprite');
-
-  // A stroke lands on the AVATAR face of action `one` — the edit the studio
-  // actually makes.
-  const edited = store.replaceFrameCell(before, 'one', 0, AVATAR_GRID,
-    face(AVATAR_GRID, { rows: store.paintCell(one.frames[0].cells[AVATAR_GRID].rows, 1, 1, '01') }));
-
-  assert.notEqual(edited.actions[0], one, 'the painted action is a new object');
-  assert.equal(edited.actions[1], two,
-    'the action nobody touched is the SAME object — its validation, its frames and its sprite are already known');
-  assert.equal(edited.actions[0].frames[0].cells[BODY_GRID], one.frames[0].cells[BODY_GRID],
-    'the OTHER FACE of the painted action is shared by reference: painting the head never rebuilds the body');
-  assert.equal(edited.palette, before.palette, 'the palette array is shared while it did not grow');
-  assert.equal(store.spriteFor(edited.actions[1].frames[0].cells[AVATAR_GRID]),
-    store.spriteFor(two.frames[0].cells[AVATAR_GRID]), 'the untouched face keeps its sprite by identity');
-  assert.notEqual(store.spriteFor(edited.actions[0].frames[0].cells[AVATAR_GRID]),
-    store.spriteFor(one.frames[0].cells[AVATAR_GRID]), 'the painted face gets a fresh one');
-});
-
-test('validation answers from the memo, and follows a real edit', () => {
-  clearStorage();
-  const art = fixture();
-  assert.equal(store.artworkErrors(art), store.artworkErrors(art),
-    'the same document is answered with the very same verdict (one scan, not one per ask)');
-  assert.equal(store.artworkErrors(art).length, 0, 'and the verdict is "valid"');
-
-  const broken = { ...art, states: { idle: ['one'], tool: ['ghost'] } };
-  assert.ok(store.artworkErrors(broken).some((e) => e.includes('no such action')),
-    'a changed document is re-checked — the memo is keyed by identity, so a new object is a new question');
-  assert.equal(store.artworkErrors(art).length, 0, 'and the original document is still valid');
-
-  // A one-face edit re-checks the ONE action it rewrote: the verdict for the
-  // action nobody touched is the cached one.
-  const edited = store.replaceFrameCell(art, 'one', 0, AVATAR_GRID, face(AVATAR_GRID));
-  assert.deepEqual(store.artworkErrors(edited), [], 'the edited document is valid too');
-});
-
-test('resolution is memoized by artwork identity, and the 4× body fallback with it', () => {
-  clearStorage();
-  store.saveStored({ skin: 'custom', custom: fixture() });
-  const a = store.resolveNamedSkin('custom', AVATAR_GRID);
-  const b = store.resolveNamedSkin('custom', AVATAR_GRID);
-  assert.equal(a, b, 'the same artwork resolves to the very same skin object');
-  assert.equal(store.resolveTakeSkin('custom', AVATAR_GRID, 'two'),
-    store.resolveTakeSkin('custom', AVATAR_GRID, 'two'),
+test('resolution is memoized by artwork identity', () => {
+  reset();
+  assert.equal(store.resolveNamedSkin(SKIN, AVATAR_GRID), store.resolveNamedSkin(SKIN, AVATAR_GRID),
+    'the same artwork resolves to the very same skin object');
+  assert.equal(store.resolveNamedSkin(SKIN, BODY_GRID), store.resolveNamedSkin(SKIN, BODY_GRID),
+    'face by face');
+  const id = store.actionsOf(store.skinArtwork(SKIN)!)[0].id;
+  assert.equal(store.resolveTakeSkin(SKIN, AVATAR_GRID, id), store.resolveTakeSkin(SKIN, AVATAR_GRID, id),
     'and so does one action pinned as a whole skin');
-  assert.equal(store.resolveNamedSkin('custom', BODY_GRID),
-    store.resolveNamedSkin('custom', BODY_GRID), 'face by face');
   assert.equal(store.activeSkin(), store.activeSkin(), 'ACTIVE is a stable reference between writes');
-
-  // An edit produces a new document → a new resolution, but the faces it did
-  // not touch keep their sprites, so the canvases redraw the same bitmaps.
-  const before = store.loadCustomArtwork()!;
-  const sprite = store.resolveTakeSkin('custom', AVATAR_GRID, 'two')!
-    .states.idle.takes[0].frames[0].sprite;
-  store.saveStored({
-    custom: store.replaceFrameCell(before, 'one', 0, AVATAR_GRID,
-      face(AVATAR_GRID, { rows: store.paintCell(before.actions[0].frames[0].cells[AVATAR_GRID].rows, 2, 2, '01') })),
-  });
-  const after = store.resolveTakeSkin('custom', AVATAR_GRID, 'two')!
-    .states.idle.takes[0].frames[0].sprite;
-  assert.equal(after, sprite, 'an untouched action’s sprite survives the edit — no re-parse, no re-rasterise');
-  assert.notEqual(store.resolveNamedSkin('custom', AVATAR_GRID), a, 'while the skin as a whole re-resolved');
-  clearStorage();
 });
 
-test('a derived 128 face is memoized per (frame, face), and a stroke invalidates only its own', () => {
-  clearStorage();
-  const art = fixture();
-  // Action `two` carries no body face: the popup derives one from its avatar,
-  // and must pay for that once.  (`one` keeps its authored body, which is what
-  // makes the artwork body-carrying at all.)
-  art.actions = art.actions.map((a: any) => (a.id === 'two'
-    ? { ...a, frames: a.frames.map((f: any) => ({ ...f, cells: { [AVATAR_GRID]: f.cells[AVATAR_GRID] } })) }
-    : a));
-  store.saveStored({ skin: 'custom', custom: art });
-  assert.equal(store.hasBody(store.loadCustomArtwork()!), true, 'one authored body is enough');
-  const peek = store.resolveNamedSkin('custom', BODY_GRID)!;
-  assert.equal(peek.grid, BODY_GRID, 'the artwork resolves the popup at 128');
-  const derivedBefore = peek.states.tool.takes[0].frames[0].sprite;
-  const authoredBefore = peek.states.idle.takes[0].frames[0].sprite;
-  assert.equal(derivedBefore.w, BODY_GRID, 'the missing face is materialised at 128');
-  assert.equal(store.resolveNamedSkin('custom', BODY_GRID)!.states.tool.takes[0].frames[0].sprite, derivedBefore,
-    'the derived sprite is memoized, not re-upscaled per resolve');
-  assert.equal(store.resolveNamedSkin('custom', BODY_GRID)!.states.idle.takes[0].frames[0].sprite, authoredBefore,
-    'and the authored one is the face object’s own sprite');
-  assert.equal(store.cellFor(store.loadCustomArtwork()!.actions[1].frames[0], BODY_GRID).rows.length, BODY_GRID,
-    'the display helper derives the same 128 rows');
-
-  // Painting the avatar face of action 'two' must NOT invalidate action 'one'.
-  const before = store.loadCustomArtwork()!;
-  store.saveStored({
-    custom: store.replaceFrameCell(before, 'two', 0, AVATAR_GRID,
-      face(AVATAR_GRID, { rows: store.paintCell(before.actions[1].frames[0].cells[AVATAR_GRID].rows, 3, 3, '01') })),
-  });
-  const after = store.resolveNamedSkin('custom', BODY_GRID)!;
-  assert.equal(after.states.idle.takes[0].frames[0].sprite, authoredBefore,
-    'the untouched action’s authored body sprite survives (identity is the invalidation key)');
-  assert.notEqual(after.states.tool.takes[0].frames[0].sprite, derivedBefore,
-    'while the painted action’s derived face is fresh');
-  clearStorage();
+test('a derived 128 face is materialised and memoized per (frame, face)', () => {
+  const frame: any = { cells: { [AVATAR_GRID]: { rows: blank(AVATAR_GRID) } } };
+  const first = store.cellFor(frame, BODY_GRID);
+  assert.equal(first.rows.length, BODY_GRID, 'the missing face is derived at 128');
+  assert.equal(store.cellFor(frame, BODY_GRID), first, 'and it is memoized, not re-upscaled per ask');
+  assert.equal(store.spriteFor(first), store.spriteFor(first), 'the derived sprite is memoized too');
+  // Two DIFFERENT frames each get their own draft — the memo is keyed by the
+  // frame object, not by the grid.
+  const other: any = { cells: { [AVATAR_GRID]: { rows: blank(AVATAR_GRID) } } };
+  assert.notEqual(store.cellFor(other, BODY_GRID), first);
 });
 
-test('a corrupt custom document falls back instead of rendering', () => {
-  clearStorage();
-  // A document that fails validation must never reach a canvas: there is no
-  // idle assignment, so nothing could be played.
-  const bad: any = { palette: ['transparent', '#111111'], actions: [], states: {} };
-  assert.ok(store.artworkErrors(bad).length > 0, 'it is refused by the validator');
-  assert.equal(store.resolveSkin({ skin: 'custom', custom: bad }).name, store.DEFAULT_SKIN,
-    'the dock falls back to the default skin');
-  assert.equal(store.resolveNamedSkin('custom', AVATAR_GRID), null,
-    'and the picker card resolves blank rather than crashing');
-  assert.equal(store.loadCustomArtwork(), null);
+test('the assignment shares the pixel library BY REFERENCE, and is memoized per (artwork, diff)', () => {
+  reset();
+  const art = store.skinArtwork(SKIN)!;
+  const diff = { tool: art.states.tool.slice(0, 2) };
+  const applied = store.withOverrides(art, diff)!;
+  assert.equal(store.withOverrides(art, diff), applied, 'one diff is applied once');
+  assert.equal(applied.actions, art.actions,
+    'the pixel library is shared: an assignment cannot invalidate a single sprite');
+  assert.equal(applied.palette, art.palette, 'and neither can it touch the palette');
+  assert.notEqual(applied, art, 'but the state table is a new object');
+  assert.deepEqual(applied.states.tool, diff.tool);
+  assert.deepEqual(applied.states.idle, art.states.idle, 'a state the diff does not name is the authored one');
+  assert.equal(store.spriteFor(applied.actions[0].frames[0].cells[AVATAR_GRID]),
+    store.spriteFor(art.actions[0].frames[0].cells[AVATAR_GRID]),
+    'so the shared action keeps its parsed sprite by identity');
+});
+
+test('an assignment write re-resolves the skin, and every sprite survives it', () => {
+  reset();
+  const before = store.resolveNamedSkin(SKIN, AVATAR_GRID)!;
+  const art = store.skinArtwork(SKIN)!;
+  const idleAction = store.actionsOf(art).find((a) => a.id === art.states.idle[0])!;
+  const otherAction = store.actionsOf(art).find((a) => a.id !== idleAction.id)!;
+
+  assert.equal(before.states.idle.takes[0].frames[0].sprite,
+    store.spriteFor(idleAction.frames[0].cells[AVATAR_GRID]), 'idle plays the authored action');
+
+  store.saveSkinStates(SKIN, { ...art.states, idle: [otherAction.id] });
+
+  const after = store.resolveNamedSkin(SKIN, AVATAR_GRID)!;
+  assert.notEqual(after, before, 'the document changed, so the resolution is fresh');
+  assert.equal(after.states.idle.takes[0].frames[0].sprite,
+    store.spriteFor(otherAction.frames[0].cells[AVATAR_GRID]),
+    'and it draws the action the assignment names — from the SHARED face object, so no re-parse');
+  assert.equal(store.spriteFor(idleAction.frames[0].cells[AVATAR_GRID]),
+    store.spriteFor(idleAction.frames[0].cells[AVATAR_GRID]),
+    'the action the assignment moved away from is untouched');
+  reset();
 });
 
 test('usedBy is an index: one pass per artwork, one shared answer per ask', () => {
-  clearStorage();
   const art = fixture();
   const index = store.usageIndex(art);
   assert.equal(store.usageIndex(art), index, 'the index is built once per artwork');
@@ -214,67 +141,34 @@ test('usedBy is an index: one pass per artwork, one shared answer per ask', () =
   assert.deepEqual(info[0].usedBy, ['idle'], 'the old index still describes the old artwork');
 });
 
-test('small metadata writes land synchronously', () => {
-  clearStorage();
+test('every write lands at once, and the payload is a DIFF — never artwork', () => {
+  reset();
   writes = 0;
-  store.saveStored({ brushes: ['#000000', '#111111', '#222222', '#333333', '#444444', '#555555'] });
-  assert.equal(writes, 1, 'a paint-box edit is written through at once');
-  assert.ok(storeMem.get(store.STORE_KEY)!.includes('#111111'));
+  const art = store.skinArtwork(SKIN)!;
+  const other = store.actionsOf(art).find((a) => a.id !== art.states.idle[0])!.id;
+  store.saveSkinStates(SKIN, { ...art.states, idle: [other] });
+
+  assert.equal(writes, 1, 'the assignment is written through synchronously');
+  const text = storeMem.get(store.STORE_KEY)!;
+  assert.ok(text.length < 4096, `the whole document is a few hundred bytes (was ${text.length})`);
+  assert.ok(!text.includes('rows'), 'no artwork document is stored — the pixels ship in the chunk');
+  const doc = JSON.parse(text);
+  assert.equal(doc.v, store.STORE_VERSION, 'and it is stamped with the current schema');
+  assert.deepEqual(doc.builtinStates[SKIN].idle, [other], 'the diff is what was stored');
+  assert.equal(store.loadStored().skin, undefined, 'nothing else was invented');
 });
 
-test('a big document is coalesced: memory is live, storage follows on a flush', () => {
-  clearStorage();
-  writes = 0;
-  const big = store.seedArtworkFrom(store.DEFAULT_SKIN);
-  store.saveStored({ skin: 'custom', custom: big });
-
-  // Live for every reader — including the studio, which reads it back.
-  assert.equal(store.loadStored().skin, 'custom');
-  assert.equal(store.loadCustomArtwork(), big, 'the document in memory is the document just saved');
-  assert.equal(store.activeSkin().name, 'custom', 'and ACTIVE already follows it');
-  assert.equal(writes, 0, 'but the ~15MB snapshot was NOT serialized per save');
-
-  store.flushStored();
-  assert.equal(writes, 1, 'one flush, one write');
-  assert.ok(storeMem.get(store.STORE_KEY)!.length > 1000000, 'and it carried the whole document');
-  store.flushStored();
-  assert.equal(writes, 1, 'a flush with nothing pending is a no-op');
-  clearStorage();
-});
-
-test('a drag of many strokes writes storage once', () => {
-  clearStorage();
-  const big = store.seedArtworkFrom(store.DEFAULT_SKIN);
-  store.saveStored({ skin: 'custom', custom: big });
-  store.flushStored();
-  writes = 0;
-
-  const id = store.loadCustomArtwork()!.actions[0].id;
-  let painted = store.loadCustomArtwork()!;
-  for (let i = 0; i < 30; i++) {
-    const action = painted.actions.find((a) => a.id === id)!;
-    const base = action.frames[0].cells[BODY_GRID]!;
-    painted = store.replaceFrameCell(painted, id, 0, BODY_GRID,
-      { rows: store.paintCell(base.rows, i, i, '01') });
-    store.saveStored({ skin: 'custom', custom: painted });
+test('the write-through snapshot survives a storage failure without serving a lie', () => {
+  reset();
+  const realSet = (globalThis as any).window.localStorage.setItem;
+  (globalThis as any).window.localStorage.setItem = () => { throw new Error('quota'); };
+  try {
+    store.saveStored({ skin: SKIN });
+  } finally {
+    (globalThis as any).window.localStorage.setItem = realSet;
   }
-  assert.equal(writes, 0, 'thirty painted pixels, no serialization');
-  assert.equal(store.loadCustomArtwork(), painted, 'every stroke is live');
-
-  store.flushStored();
-  assert.equal(writes, 1, 'and the burst costs exactly one snapshot');
-  clearStorage();
-});
-
-test('the editor primitives stay cheap and pure', () => {
-  const rows = store.blankRows(AVATAR_GRID);
-  const painted = store.paintCell(rows, 3, 4, '02');
-  assert.equal(store.pixelAt(painted[3], 4), '02');
-  // Copy-on-write at ROW granularity: every other row is the same string.
-  for (let y = 0; y < AVATAR_GRID; y++) {
-    if (y === 3) continue;
-    assert.equal(painted[y], rows[y], 'row ' + y + ' is shared by reference');
-  }
-  assert.equal(painted.length, AVATAR_GRID);
-  assert.equal(store.TRANSPARENT, '..');
+  // The refused write dropped the in-memory copy, so the next read re-parses
+  // storage — which still holds the last good document.
+  assert.equal(store.loadStored().skin, undefined, 'the store reports what storage actually holds');
+  reset();
 });

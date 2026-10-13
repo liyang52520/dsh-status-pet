@@ -128,18 +128,16 @@ function mirroredTake(skinName: string, state: string, count: number, now: numbe
 // `scaleFor(skin)` decides how many canvas px one sprite pixel is: the dock
 // draws at 1x, previews at a fixed comfortable zoom.  `skinRef` pins the
 // skin source: undefined → follow the store's ACTIVE; null → explicit
-// blank (a picker card for a custom slot with no artwork); an object →
-// that pinned skin.  `takePinRef` pins the take index (the editor previews
-// the take being edited instead of the random rotation).  `zoom` scales the
-// CSS box only (see LIVE_ZOOM): the backing store always keeps one canvas
-// pixel per sprite pixel.  Returns the disposer.
+// blank (a picker card whose artwork chunk has not landed); an object →
+// that pinned skin.  `zoom` scales the CSS box only (see LIVE_ZOOM): the
+// backing store always keeps one canvas pixel per sprite pixel.  Returns the
+// disposer.
 export function startLoop(
   canvas: HTMLCanvasElement,
   faceRef: MutableRef<string>,
   reducedRef: MutableRef<boolean>,
   scaleFor: (skin: ResolvedSkin) => number,
   skinRef?: LoopSkinRef | null,
-  takePinRef?: MutableRef<number> | null,
   zoom = 1,
   role: LoopRole = 'free',
 ): () => void {
@@ -170,7 +168,7 @@ export function startLoop(
     const pinned = skinRef ? skinRef.current : undefined;
     const skin = pinned === undefined ? activeSkin() : pinned;
     if (skin === null) {
-      // Explicit blank (the picker's empty custom card).
+      // Explicit blank (a picker card whose artwork chunk has not landed).
       if (drawnSkin !== null || drawnSprite !== null) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         drawnSkin = null;
@@ -199,8 +197,6 @@ export function startLoop(
       }
     }
 
-    // The pinned take (editor preview) replaces the random rotation.
-    const pin = takePinRef ? takePinRef.current : -1;
     const currentTake = (index: number) => entry.takes[index % entry.takes.length];
 
     // A follower mirrors the leader's take AND its phase, so the two layers
@@ -222,14 +218,14 @@ export function startLoop(
       // the frame drawn is the frame the CHOSEN take starts on — the roll used to
       // happen after the take was read, so a fresh take inherited the outgoing
       // one's phase and began on its second frame.
-      index = pin >= 0 ? pin : rotation.index;
+      index = rotation.index;
       take = currentTake(index);
       elapsed = now - cycleStart;
       const cycle = take.frames.reduce((sum, f) => sum + f.ms, 0);
       if (elapsed >= cycle) {
         cycleStart = now;
-        if (pin < 0) rotation = advanceTake(rotation, entry.takes.length, policy);
-        index = pin >= 0 ? pin : rotation.index;
+        rotation = advanceTake(rotation, entry.takes.length, policy);
+        index = rotation.index;
         take = currentTake(index);
         elapsed = 0;
       }

@@ -58,7 +58,7 @@ export function DockPet(props: DockPetProps | null) {
     // It is also the LEADER of the take channel: whatever take and phase the
     // dock is playing is what the popup mirrors (see loop.ts), so opening the
     // peek shows the animation the pet is actually doing, not a second roll.
-    return startLoop(canvas, faceRef, reducedRef, () => 1, undefined, undefined, LIVE_ZOOM, 'lead');
+    return startLoop(canvas, faceRef, reducedRef, () => 1, undefined, LIVE_ZOOM, 'lead');
   }, []);
 
   // The popup: the same mechanism as the host's "context used" meter —

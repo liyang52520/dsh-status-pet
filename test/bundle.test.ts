@@ -29,6 +29,9 @@ let def: any = null;
 (globalThis as any).document = { body: {}, addEventListener: () => {}, removeEventListener: () => {} };
 
 await import(join(HERE, '..', 'client.js') + '?v=' + Date.now());
+/** The plugin bundle's own text, so the shipped CSS and modules can be
+ *  asserted against — a deletion is only real once it is gone from the build. */
+const bundleText = readFileSync(join(HERE, '..', 'client.js'), 'utf8');
 
 const ReactStub = {
   Fragment: Symbol('Fragment'),
@@ -54,8 +57,22 @@ test('apply() registers the dock entry and the settings section', () => {
   const registrations: Array<{ options: any; component: any }> = [];
   const plugin = def.factory(requireStub);
   assert.deepEqual(plugin.inject, ['slots', 'locale']);
-  assert.ok(plugin.skinTools && typeof plugin.skinTools.validateArtwork === 'function',
+  assert.ok(plugin.skinTools && typeof plugin.skinTools.resolveSkin === 'function',
     'skinTools are exposed');
+  assert.equal(typeof plugin.skinTools.ui.SkinPicker, 'function', 'the skin cards ship');
+  assert.equal(typeof plugin.skinTools.ui.PetPreview, 'function', 'and the live preview');
+  assert.equal(typeof plugin.skinTools.ui.ActionViewer, 'function', 'and the read-only 动作 view');
+  assert.equal(typeof plugin.skinTools.ui.PixelEditor, 'undefined', 'but no studio');
+  // The bundle is code only — the 动作 view's rules ship, and the studio's
+  // WRITING surfaces do not.
+  for (const live of ['status-pet-studio', 'status-pet-board-wrap', 'status-pet-cell',
+                      'status-pet-filmstrip', 'status-pet-combo']) {
+    assert.ok(bundleText.includes(live), live + ' ships with the viewer');
+  }
+  for (const dead of ['status-pet-swatch', 'status-pet-nudge', 'status-pet-action-name',
+                      'status-pet-frame-ops', 'status-pet-combo-foot', 'status-pet-takeover']) {
+    assert.equal(bundleText.includes(dead), false, dead + ' was a writing control');
+  }
   plugin.apply({
     effect: (fn: any) => {
       fn();
@@ -115,6 +132,53 @@ test('the built dock component renders a pill with a canvas', () => {
   assert.ok(anchor, 'the anchor span renders');
   const style = tree.children.find((c: any) => c && c.type === 'style');
   assert.ok(style, 'the inline style element renders');
+});
+
+test('the built settings tab renders the Workshop from the SHIPPED bundle', async () => {
+  // The artifact, not the source: the bundle carries its own copy of the store,
+  // so this installs the artwork through the bundle's own `skinTools` and renders
+  // the registered settings component exactly as the shell would.
+  const registrations: Array<{ options: any; component: any }> = [];
+  const plugin = def.factory(requireStub);
+  plugin.apply({
+    effect: (fn: any) => { fn(); return () => {}; },
+    locale: { register: () => () => {}, bind: () => (k: string) => 'S:' + k },
+    slots: {
+      inject: (_name: string, fn: any) => fn(),
+      register: (opts: any, comp: any) => {
+        registrations.push({ options: opts, component: comp });
+        return () => {};
+      },
+      entries: () => [],
+    },
+  });
+  const { ARTWORK } = await import('../src/artwork.gen.ts');
+  plugin.skinTools.installSkinArtwork(ARTWORK as never);
+
+  const page = registrations.find((r) => r.options.name === 'settings.section')!.component;
+  const tree = page({ t: (k: string) => 'S:' + k });
+
+  const deep = (el: any, frag: string, out: any[] = []): any[] => {
+    if (!el || typeof el !== 'object') return out;
+    if (el.props && String(el.props.className || '').split(' ').includes(frag)) out.push(el);
+    for (const c of ((el.children as any[]) || []).flat()) deep(c, frag, out);
+    return out;
+  };
+  assert.ok(tree.children.some((c: any) => c && c.type === 'style'), 'the stylesheet ships');
+  assert.equal(deep(tree, 'status-pet-state-row').length, 11, 'the eleven states render');
+  assert.equal(deep(tree, 'status-pet-columns').length, 1, 'as two columns');
+  const assign = (function find(el: any): any {
+    if (!el || typeof el !== 'object') return null;
+    if (el.props && el.props.skin === plugin.skinTools.DEFAULT_SKIN && el.props.state === 'idle') return el;
+    for (const c of ((el.children as any[]) || []).flat()) {
+      const hit = find(c);
+      if (hit) return hit;
+    }
+    return null;
+  })(tree);
+  assert.ok(assign, 'the selected state is handed to the assignment surface');
+  assert.equal(deep(tree, 'status-pet-axis').length, 1, 'the 状态 / 动作 axis ships');
+  assert.equal(deep(tree, 'status-pet-studio').length, 0, '状态 opens first, so no viewer yet');
 });
 
 test('the factory asks the loader for the artwork chunk (relative, client.*.js)', () => {
