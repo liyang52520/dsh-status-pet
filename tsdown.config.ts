@@ -33,6 +33,6 @@ const shared = {
 };
 
 export default defineConfig([
-  { ...shared, name: 'client', entry: { client: 'src/main.ts' } },
-  { ...shared, name: 'artwork', entry: { 'client.artwork': 'src/artwork-chunk.ts' } },
+  { ...shared, name: 'client', entry: { client: 'src/index.ts' } },
+  { ...shared, name: 'artwork', entry: { 'client.artwork': 'src/artwork.ts' } },
 ]);

@@ -1,331 +1,62 @@
 # Status Pet 🐳
 
-**A tiny pixel-art whale maid who lives in the DSH composer dock and shows you,
-at a glance, what your agent is doing.** She naps when nothing is happening,
-gets busy while a tool runs, holds up a warning when the agent is blocked on
-*your* approval, throws sparkles when a turn lands, and looks sheepish with a
-drop of sweat when one fails. Click her and the big picture opens above the
-dock — pet her *there* and she hops with a little heart.
-
-![Whale-chan walking through her states](docs/media/hero.gif)
-
-![DSH client plugin](https://img.shields.io/badge/type-DSH%20Client%20Plugin-blue)
-![version](https://img.shields.io/badge/version-1.0.0-green)
-![license](https://img.shields.io/badge/license-MIT-lightgrey)
-
-> Every image in this README is rendered from the shipped artwork — it is the
-> same pixel data the pet draws, not a mockup.
-
-## Why it exists
-
-An agent turn is a long silence. You send a message, the transcript sits still,
-a tool runs for twenty seconds, and the one thing that actually deserves to
-interrupt you — *it is waiting for your approval* — is a bubble somewhere in the
-scrollback. The pet turns that into something you can read out of the corner of
-your eye, without reading anything.
-
-She is not a spinner with a few loops, either: the artwork is one
-**library of 106 animations**, and every state gets its own short, deliberate
-set of at most four — picked by what the state actually means, not by what
-happened to be left over. Idle breathes, checks the mirror, pets a cat or lets
-little animals circle her; a running tool gets 写代码 and 敲击桌面; a failed turn
-gets the sighing, sweating, tail-slapping ones. Each animation holds the screen
-for a few seconds before the next is rolled — so the dock is alive without ever
-being frantic. Yes, one of the "running a tool" animations is her eating a
-token.
-
-## Every state
-
-| | State | You see it when |
-|---|---|---|
-| <img src="docs/media/states/idle.gif" width="80" alt="Idle"> | **Idle** · 空闲 | nothing is running — **four everyday animations**: breathing, looking in the mirror, petting a cat, little animals circling her |
-| <img src="docs/media/states/sleep.gif" width="80" alt="Sleeping"> | **Sleeping** · 睡觉中 | nothing has happened for a minute — dimmed, eyes closed |
-| <img src="docs/media/states/think.gif" width="80" alt="Thinking"> | **Thinking…** · 思考中… | busy with no output yet — she reacts the instant you hit send |
-| <img src="docs/media/states/stream.gif" width="80" alt="Responding"> | **Responding…** · 回复中… | output is arriving: assistant text, or a tool call's arguments still being written |
-| <img src="docs/media/states/tool.gif" width="80" alt="Running a tool"> | **Running a tool…** · 正在执行工具… | a tool call is executing — hover to see *which* tool |
-| <img src="docs/media/states/approval.gif" width="80" alt="Waiting for approval"> | **Waiting for your approval** · 等待你批准 | **the agent is blocked on you** — wide eyes, and the pill pulses |
-| <img src="docs/media/states/question.gif" width="80" alt="Waiting for an answer"> | **Waiting for your answer** · 等待你回答 | **the agent asked you something** — pulsing pill |
-| <img src="docs/media/states/error.gif" width="80" alt="Something went wrong"> | **Something went wrong** · 出错了 | the last turn — or a send/stop — failed; the pill tints red |
-| <img src="docs/media/states/done.gif" width="80" alt="Done"> | **Done** · 已完成 | a turn finished and you haven't looked at it yet |
-
-Two of those are the useful ones: **approval** and **question** are the moments
-the agent cannot proceed without you.
-
-Her two reactions, which are artwork too:
-
-| | Reaction | When |
-|---|---|---|
-| <img src="docs/media/states/petted.gif" width="80" alt="Blushing"> | **Blushing** · 害羞了 | the moment you click her in the popup |
-| <img src="docs/media/states/woken.gif" width="80" alt="Woken up"> | **Woken up** · 被叫醒了 | you hover or tab-focus her while she is asleep |
-
-## Using her
-
-| Trigger | What happens |
-|---|---|
-| **Click** the dock pet | Opens the **big-picture popup** above the dock: the most detailed version of the current skin, animated. A second click, Escape, or a click outside closes it. (The dock pet itself does not react — it is the way in.) |
-| **Click anywhere in the popup** | She hops with a little heart for ~0.9 s and the caption flips to the reaction's name. The whole panel pets her, padding and caption included. |
-| **Hover** her while she sleeps | She wakes up. |
-| **Tab-focus** her while she sleeps | She wakes up too — nothing here is mouse-only. |
-| **Hover** her at any time | The tooltip names the current state, instantly (no dwell) — and while a tool runs, it names the tool itself. |
-
-Clicking is not the only thing the dock tells you: **three states tint or pulse
-the pill itself** (approval, question, error), so the status bar carries the
-signal even when your eyes are on the chat.
-
-### One action, two faces — the dock and the popup never disagree
-
-She is drawn as two **faces** of the same animation: a 32×32 avatar bust for the
-dock and a 128×128 full body for the popup. Both are rendered at one sprite
-pixel per canvas pixel and then shown at **half** (an exact 1:2, so every
-displayed pixel lands on one source pixel and nothing blurs); the Settings
-previews show them 1:1 instead, which is the point of having bigger faces.
-
-They are **one action, not two libraries**: the frame count, the pace, the
-per-frame timing, the whole-frame nudge and the state assignment are single
-source, and the player couples them too — the dock leads, the popup mirrors its
-take *and its phase*. Open the peek on a running tool and you see the same
-animation the pet is doing, at 64 CSS px instead of 16. Give an action no body
-artwork and the popup draws its avatar at a crisp 4× instead — the body stays
-optional without ever breaking the pair.
-
-![Two faces, two sizes](docs/media/sizes.png)
-
-## Make her yours 🎨
-
-The plugin ships one skin, **Whale-chan** (鲸鱼娘) — a white lace headdress with
-a DeepSeek-blue bow, navy hair with bright blue tips, whale-fin ears, and an
-apron with a tiny whale logo. Her pixels are hers; what is yours is **what she
-does while she does it**:
-
-![Skins](docs/media/skins.png)
-
-- **Skins** — pick Whale-chan from the cards at the top of her settings tab. The
-  choice applies instantly, no reload, and survives one too.
-- **An action library, not eleven separate animations** — the skin holds ONE
-  library of **106 actions**, each one animation with **two faces** (the 32×32
-  avatar the dock draws, and the 128×128 body the popup draws). Every state
-  simply **ticks the actions it plays**: up to 64 per state, played in rotation,
-  each take held for several loops before the next is rolled.
-- **Tick one action in several states and it is *reused*.** The row says
-  「被 3 个状态在用」, because there is one definition behind it. A state with
-  nothing ticked follows 空闲 / Idle.
-- **`idle` can never be emptied** — every unassigned state falls back to it — so
-  清空 on 空闲 keeps its first action and asks you first, and every other state
-  clears to empty on the spot.
-- **Every row is a preview.** 106 animations cannot be chosen from a list of
-  names: each row carries a 1:1 picture of its action, and pointing at (or
-  tabbing to) one plays it **live in the header**, at the popup's size.
-
-Your assignment is stored as a small **diff** beside the frozen artwork — a few
-hundred bytes of action ids — so a state you never touched keeps following the
-artwork, and nothing you can do here can break her: an unknown id, a corrupt
-store or a payload from another version falls back to the whale instead of
-blanking her.
-
-> Earlier builds shipped a full pixel studio (draw your own skin, frame by frame).
-> DRAWING was removed in the v10 schema — it was the largest and most invasive part of
-> the codebase — but the 动作 page stayed, as a viewer: the same picker, board and
-> filmstrip, with every writing control simply not rendered. The studio itself is still
-> in `git log` if you ever want it back.
-
-## Install
-
-Install the bundle from this directory with the DSH plugin manager — use the
-absolute path of the checkout:
-
-```
-plugin_manager install_bundle /absolute/path/to/dsh-status-pet
-```
-
-Without the agent tool, the CLI equivalent is:
-
-```bash
-dsh plugin --profile <profile> add /absolute/path/to/dsh-status-pet
-```
-
-…followed by a row in that profile's `cordis.patch.yml`:
-
-```yaml
-- insert:
-    - id: status-pet
-      name: '@local/dsh-status-pet'
-```
-
-Then look at the composer dock — the status bar above the chat input. She
-appears as a pill with a tiny pixel whale inside, gently bobbing, at the **far
-left** of the row (left of the built-in pills). Send a message and watch her
-change; hover her to see the state named.
-
-## Her settings tab
-
-Open DSH Settings and pick **状态宠物 / Status Pet** in the nav. The page is the skin
-cards, then **one axis** — 状态 / 动作 — and that is the whole navigation.
-
-**状态 / States is where you change things; 动作 / Actions is where you look.**
-
-**皮肤 / Skin** — one card per built-in, each a live portrait drawn at 2×.
-Selecting applies at once.
-
-**状态 / States — a light list beside its edit.** The left column is eleven
-one-line rows, one per state (the reactions sit under their own 反应 caption, because
-a reaction is not something she is *doing*): the name, and what that state plays
-(「3 个动作」 or 「跟随空闲」 — the one place a state you forgot to tick anything for is
-visible). No pictures here — that would be the same face eleven times — and no search,
-because eleven rows do not need one; her picture is the one in the header. Click a row
-and the right half follows it: the state live and named
-once with what it means, then the library as one checkbox per action saying whether
-this state plays it. Each row's little 1:1 picture **plays its own action** (so a bob or
-a blink is visible in the list), and pointing at a row plays it big in the header. The actions the state already plays are
-listed **first** under an 已勾给该状态 header, with 其他动作 below; each half keeps
-the library's order, the search box scopes 全选 (which sits on the same line as 清空),
-and 清空 empties any state — on 空闲 it asks first, because every unassigned state
-follows 空闲 and it would otherwise have nothing to play.
-
-**动作 / Actions — the whole library, one animation at a time.** The board shows one
-action at 1:1, with its live preview beside it at the popup's own display size, and the
-filmstrip under it steps through that action's frames. The picker is ONE control: closed
-it names the action on the board, open it lists all 106 — each row a **playing**
-thumbnail plus its read-out — filtering as you type (↑/↓ and Enter work too). 头像 / 全身 sits in a row on top of
-the board, because it changes what you are looking at.
-
-This view **only looks**: the pixels are baked into the plugin and frozen, so there is no
-新建动作 / 删除动作, no frame editing, no brushes and no frame numbers — a click on the
-board does nothing at all. (There used to be a full pixel studio here; see the note
-above.)
-
-## Good to know
-
-- **She sits at the far left, fixed.** That is deliberate, not a missing
-  setting: the dock's trailing "context used" meter is drawn by the host
-  *outside* the slot, so a "rightmost" pet could never actually be rightmost,
-  and a half-working position setting would just look like a bug.
-- **She is a read-out; the popup is the toy.** The dock pill only opens the
-  popup. Petting, and anything more involved, belongs behind that click.
-- **Reduced motion is honoured** — `prefers-reduced-motion` freezes her on each
-  animation's first frame and disables the pulse.
-- **A hidden tab costs nothing** — the animation loop stops while the tab is in
-  the background and resumes when you come back.
-- **Bilingual** — every visible string follows the DSH UI language (English and
-  中文 ship).
-- **No polling, no runtime dependencies** — she reads the session through the
-  slot's standard props with narrow selectors, and the shipped artifact is plain
-  JS plus the React the DSH web shell already has.
-- **Skins are data** — a skin is one artwork document (a palette, an action
-  library whose entries carry both faces, and which action ids each state plays),
-  and the user's whole footprint on it is a diff that re-points states at other
-  ids. That is why the store is a few hundred bytes and a write is instant.
-- **An older payload is migrated, not dropped** — a store from the previous
-  schema keeps the skin choice and its state assignment; the keys the studio era
-  wrote (`custom`, `brushes`) are dropped, and a skin name we no longer ship
-  falls back to the default skin.
+A tiny pixel-art whale maid who lives in the DSH composer dock and shows you
+what your agent is doing — sleeping, thinking, running tools, waiting for your
+approval, or just being done.  Click her and the big picture pops up: a pettable
+panel with the full-body animation.
 
 ---
 
-<details>
-<summary><b>For developers</b> — architecture, files, dev loop, tests</summary>
+## Layers
 
-### Layout
+| Where | Size | What |
+|---|---|---|
+| Dock pill | 16 CSS px of art | the pet as a pure status read-out |
+| Click popup | 64 CSS px of art | the full animated body + every interaction |
+| Settings tab | 1:1 / LIVE_ZOOM | skin cards, state ↔ action assignment, the action viewer |
+
+---
+
+## Architecture
 
 ```
-dsh-status-pet/
-├── package.json        bundle metadata, exports, client injection config, scripts
-├── cordis.patch.yml    the Cordis patch that inserts the plugin row
-├── index.js            Host half (no-op — everything is client-side)
-├── client.js           BUILD ARTIFACT (gitignored): the plugin bundle
-├── client.artwork.js   BUILD ARTIFACT (gitignored): the frames, fetched on demand (15.6MB)
-├── src/                the real TypeScript source
-├── test/               node:test suite (no browser, no DOM)
-├── bench/              the performance harness (`pnpm bench`) — not shipped
-└── AGENTS.md           the full architecture & contributor reference
+src/
+  pet/         pure domain: state machine, tuning, i18n
+  skin/        artwork model + wardrobe: geometry, codec, faces, library,
+               assignment diff, persistence, resolution, built-in catalog (15 MB)
+  player/      pure playback: rotation policy, tick reducer, lead/follow channel
+  platform/    host adapters: clock (rAF), raster (canvas), bitmaps, theme
+  view/        React: PetCanvas (the ONE playing element), dock, popup, settings
 ```
 
-`src/` is organized as a pet system, not as plugin plumbing: `pet/` is the pet
-itself (pure data and pure functions — no DOM, no React, node runs it directly),
-`renderer/` draws and animates it, `ui/` is where it lives, and the two root
-files are the plumbing.
+One dependency direction: `pet ← skin ← player ← platform ← view ← entry`.
 
-| File | What lives there |
-|---|---|
-| `pet/behavior.ts` | `TUNING` rhythm knobs, the pure `derivePetState` state machine, the state vocabulary and the reaction table |
-| `pet/grids.ts` | Body plan: both grids' geometry (`canvasW/H`, `baseY`, `padX`, `maxOffset`) and `LIVE_ZOOM` |
-| `pet/labels.ts` | Every visible string, en + zh, plus the translator fallback |
-| `pet/skins/` | The wardrobe, one concern per module: the paired model + the shape door (`compose.ts`), the library reads and the state assignment (`library.ts`), the authored chunk's invariant check (`validate.ts`, test-only), persistence and its migration (`storage.ts`), document reads + the assignment diff (`documents.ts`) and resolution (`resolve.ts`) — with `store.ts` as the single entry point |
-| `pet/skins/built-ins.ts` | The built-in registry, filled from the artwork chunk |
-| `renderer/draw.ts` | The pixel plotter (sprite + accent → canvas) |
-| `renderer/sprite-cache.ts` | Pre-rendered offscreen bitmaps, so a frame is one `drawImage` |
-| `renderer/take-rotation.ts` | The pure take-hold policy: how many plays one take gets before the next is rolled |
-| `renderer/loop.ts` | One shared rAF ticker + the frame player (`zoom` scales the CSS box only) |
-| `ui/dock-pet.ts` · `ui/dock-popup.ts` | The two live layers: the dock pill and its click popup |
-| `ui/pet-preview.ts` | The one pet-drawing component (popup, state header, skin cards) |
-| `ui/hooks.ts` · `ui/styles.ts` | Session props → pet facts + reactions, and the inlined stylesheet |
-| `ui/settings/` | The Workshop: the page shell (skin cards + the state list), the skin picker, and the state's edit surface (`assignments.ts`), with a row thumbnail (`frame-canvas.ts`) and one labelled field (`field.ts`) |
-| `main.ts` · `host-deps.ts` | Registration at the fixed `DOCK_ORDER`, and the only module touching the loader's `require` |
+---
 
-### Every cache is keyed by identity
-
-Artwork is immutable, and the assignment shares the pixel library by reference —
-a tick is a new state table over the very same action objects. So "this is the
-same object" is a sound statement about "this work is already done", and every
-cache in the wardrobe is keyed that way:
-
-- **resolution** is memoized per artwork and per (skin, grid), and frames parse
-  into sprites memoized per frame — so re-pointing a state re-resolves a skin
-  whose every sprite, and therefore every pre-rendered bitmap, is the one already
-  on screen;
-- **the 4× body draft** (an action with no body face) is memoized per
-  (frame, face);
-- **the assignment diff** is applied once per (artwork, diff) pair, and a write
-  that changes nothing does not happen at all: no serialization, no re-resolve,
-  no broadcast;
-- **persistence is write-through**, because the payload is a few hundred bytes —
-  there is no editing burst to coalesce and nothing to flush on `pagehide`.
-
-`pnpm bench` prints the numbers: the chunk landing, a cold and a warm resolve,
-the 106 row previews, one tick and a burst of forty, measuring what a tick costs
-localStorage in bytes.
-
-### The artwork is baked, and now frozen
-
-The built-in artwork was generated once from source gifs plus a recipe mapping
-each state to them, by a Python pipeline — and all of those inputs have since
-been **deleted**, along with the pipeline itself. What remains is
-`src/artwork.gen.ts` (now the source of truth, edited by hand when a built-in
-action needs a fix), whose per-action provenance comments are the frozen
-catalog: every action, its id, its gif, its frames and its gloss.
-
-Each `[gif, gloss]` pair became one LIBRARY ACTION — the gloss as its name, the
-gif name as its provenance — with four sampled frames and the palette quantised
-from them. `client.js` never contains a frame: the frames ship as their own
-chunk (`client.artwork.js`) requested on demand, so the plugin itself stays
-small.
-
-### Dev loop
+## Quick start
 
 ```bash
-pnpm install        # once
-pnpm build          # tsdown: src/ → client.js  (or: pnpm dev, watching)
-pnpm test           # builds first, then runs the node:test suite
-pnpm typecheck      # tsc --noEmit
-pnpm bench          # the store hot paths, against the real modules
+pnpm build      # → client.js (95 kB) + client.artwork.js (15.6 MB)
+pnpm typecheck  # tsc --noEmit
+pnpm test       # 80 tests (rebuilds first via pretest)
+pnpm dev        # build --watch
 ```
 
-The suite drives the real modules — the components with a stubbed React and slot
-props, the frame player with a stubbed canvas, rAF and clock, the rotation
-policy directly, plus a smoke test of the built `client.js`. It covers the state
-truth table, interactions, localisation, registration, artwork geometry and the
-anti-clipping guard on every animation, the pairing door, the assignment diff and
-its sanitizing, and the shipped stylesheet (the studio's rules must stay gone).
-It needs no browser; appearance itself needs eyes on a running instance.
+---
 
-### README images
+## Storage
 
-`docs/media/` holds frozen snapshots rasterised from the shipped frames with the
-renderer's own geometry and integer scaling, so the images cannot drift from the
-artwork. The script that produced them was removed along with the artwork
-pipeline; `git log` still has it if they ever need to be re-rendered.
+```json
+{ "v": 1, "skin": "whale-chan",
+  "assignments": { "whale-chan": { "tool": ["xie-daima"] } } }
+```
 
-</details>
+The artwork (15 MB of pixel data) is never stored — only a handful of action ids.
+The diff is written against the authored assignment, so a state the user never
+touched keeps following the artwork.
+
+---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT
