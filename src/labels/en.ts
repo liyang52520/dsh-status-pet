@@ -14,7 +14,7 @@ export const en = {
   question: 'Waiting for your answer', error: 'Something went wrong',
   done: 'Done', petted: 'Blushing', woken: 'Woken up',
 
-  'settings.nav': 'Status Pet',
+  'settings.nav': 'Pet',
   'settings.previewHint': 'Click to pet it',
   'settings.skins': 'Skin',
   'settings.skin.whale-chan': 'Whale-chan',
