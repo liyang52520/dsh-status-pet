@@ -38,7 +38,6 @@ One dependency direction: `pet ← skin ← player ← platform ← view ← ent
 ```bash
 pnpm build      # → client.js (95 kB) + client.artwork.js (15.6 MB)
 pnpm typecheck  # tsc --noEmit
-pnpm test       # 80 tests (rebuilds first via pretest)
 pnpm dev        # build --watch
 ```
 

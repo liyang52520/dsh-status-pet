@@ -58,10 +58,16 @@ export const THEME = [
   // 不跟 dock 的三档宽度走。 短句居中（`margin:0 auto`），长句解掉钳制后从左滚。
   '.status-pet-popup-title{--status-pet-line-w:min(200px,60vw);box-sizing:border-box;width:var(--status-pet-line-w);overflow:hidden;font-size:12px;line-height:18px;white-space:nowrap;color:var(--dsw-alias-label-secondary);}',
   '.status-pet-popup-title .status-pet-line-run{margin:0 auto;}',
-  '@keyframes statusPetPulse{0%,100%{background:transparent}50%{background:color-mix(in srgb, var(--dsw-alias-state-warn-primary) 24%, transparent)}}',
-  '.status-pet-pill.attention{animation:statusPetPulse 1.6s ease-in-out infinite;}',
+  // 「等你批准」的呼吸：动画只碰 `opacity`，一行合成就够 —— 它挂在 `::after` 上，
+  // 所以主线程每帧什么都不用做。 以前直接动 `background`，而背景色**不在合成器**
+  // 的名单里：于是只要有东西在等你，整条 dock 就每帧重算样式 + 重绘一次，一直不停。
+  '@keyframes statusPetPulse{0%,100%{opacity:0}50%{opacity:1}}',
+  // `isolation:isolate` 让伪元素能待在 `z-index:-1`：涂层落在按钮自己的背景之上、
+  // 内容（头像和台词）之下 —— 和以前"把背景色染上"是同一个观感，一行没差。
+  '.status-pet-pill{position:relative;isolation:isolate;}',
+  '.status-pet-pill.attention::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:color-mix(in srgb, var(--dsw-alias-state-warn-primary) 24%, transparent);animation:statusPetPulse 1.6s ease-in-out infinite;}',
   '.status-pet-pill.error{background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 18%, transparent);}',
-  '@media (prefers-reduced-motion: reduce){.status-pet-pill.attention{animation:none;background:color-mix(in srgb, var(--dsw-alias-state-warn-primary) 24%, transparent);}.status-pet-line-run.scrolling{animation:none;max-width:100%;overflow:hidden;}}',
+  '@media (prefers-reduced-motion: reduce){.status-pet-pill.attention::before{animation:none;opacity:1;}.status-pet-line-run.scrolling{animation:none;max-width:100%;overflow:hidden;}}',
   '.status-pet-section{flex-direction:column;width:100%;display:flex;}',
   '.status-pet-preview-button{border:none;background:transparent;cursor:pointer;line-height:0;border-radius:var(--dsw-radius-md);padding:8px;font-family:inherit;}',
   '.status-pet-preview-button:hover{background:var(--dsw-alias-interactive-bg-hover);}',
@@ -73,8 +79,20 @@ export const THEME = [
   '.status-pet-axis{display:flex;gap:4px;align-items:center;padding:12px 0 8px;border-bottom:.5px solid var(--dsw-alias-border-l2);}',
   '.status-pet-axis .status-pet-mini-button{font-size:13px;line-height:20px;padding:3px 14px;}',
   '.status-pet-workshop{display:flex;flex-direction:column;gap:2px;min-width:0;}',
-  '.status-pet-columns{display:grid;grid-template-columns:176px minmax(0,1fr);gap:0;align-items:start;min-width:0;margin:14px 0;border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);padding:14px;}',
-  '.status-pet-state-list{display:flex;flex-direction:column;gap:1px;min-width:0;padding-right:14px;border-right:.5px solid var(--dsw-alias-border-l2);}',
+  // 状态两栏：左栏是 24 行状态（比右栏高得多），右栏是动作库。 两边**同一个旋钮**
+  // ——`--status-pet-scroll-h`：右栏的库拿它限高，左栏的外框拿它兜底，窄容器里
+  // 它一起收窄，不需要第二套数字。 左栏的滚动窗口比右栏的库高（右栏顶上还有头像
+  // 和搜索行），但两边**底边齐平**，左栏不会在下面空出一条。
+  // 左栏分成「外框 + 滚动区」两层：外框 `align-self:stretch` 撑满整行（那道竖直分隔线
+  // 因此和右栏一样长），滚动区**占满外框**、自己滚，行数再多也不把整页拉长。
+  // 滚动区是绝对定位的 `inset:0`：一是它因此不参与外框的固有高度（行高由右栏决定，
+  // 而不是让 24 行的内容把整页顶长），二是它上边贴外框顶、下边贴外框底 —— 右栏的
+  // 库底下到哪儿，左栏的滚动窗口就下到哪儿，两栏底边齐平，下面不会剩一条空白带。
+  // 外框自己带 `min-height:var(--status-pet-scroll-h)`：右栏被搜索过滤短了的时候，
+  // 左栏也不会矮于那个旋钮。
+  '.status-pet-columns{--status-pet-scroll-h:min(44vh,360px);display:grid;grid-template-columns:176px minmax(0,1fr);gap:0;align-items:start;min-width:0;margin:14px 0;border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);padding:14px;}',
+  '.status-pet-state-list{position:relative;align-self:stretch;display:flex;flex-direction:column;gap:1px;min-width:0;min-height:var(--status-pet-scroll-h);padding-right:14px;border-right:.5px solid var(--dsw-alias-border-l2);}',
+  '.status-pet-state-scroll{position:absolute;inset:0 14px 0 0;display:flex;flex-direction:column;gap:1px;min-width:0;overflow:auto;overscroll-behavior:contain;}',
   '.status-pet-list-caption{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary);padding:10px 8px 3px;}',
   '.status-pet-list-caption:first-child{padding-top:2px;}',
   '.status-pet-state-row{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;min-width:0;padding:5px 8px;border:none;border-radius:6px;background:transparent;color:inherit;font-family:inherit;text-align:left;cursor:pointer;}',
@@ -90,8 +108,11 @@ export const THEME = [
   '.status-pet-confirm{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;padding:16px;background:color-mix(in srgb, #000 42%, transparent);}',
   '.status-pet-confirm-card{display:flex;flex-direction:column;gap:10px;max-width:320px;width:100%;padding:14px 16px;border-radius:var(--dsw-radius-md);border:.5px solid var(--dsw-alias-border-l2);background:var(--dsw-specific-menu);box-shadow:var(--dsw-elevation-panel);}',
   '.status-pet-confirm-title{font-size:14px;line-height:20px;font-weight:600;}',
-  '@container (max-width:479px){.status-pet-columns{grid-template-columns:minmax(0,1fr);gap:12px;}',
-  '.status-pet-state-list{max-height:min(38vh,300px);overflow:auto;padding-right:0;padding-bottom:12px;border-right:none;border-bottom:.5px solid var(--dsw-alias-border-l2);}',
+  '@container (max-width:479px){.status-pet-columns{grid-template-columns:minmax(0,1fr);gap:12px;--status-pet-scroll-h:min(38vh,300px);}',
+  // 堆叠之后外框回到文档流：高度就是滚动区的高度，所以取消 stretch、取消那个
+  // min-height，滚动区也回到普通流并重新用旋钮限高 —— 24 行照样不把页面顶长。
+  '.status-pet-state-list{align-self:auto;min-height:0;padding-right:0;padding-bottom:12px;border-right:none;border-bottom:.5px solid var(--dsw-alias-border-l2);}',
+  '.status-pet-state-scroll{position:static;max-height:var(--status-pet-scroll-h);}',
   '.status-pet-edit{padding-left:0;}}',
   '.status-pet-workshop{container-type:inline-size;}',
   '.status-pet-skins{display:flex;gap:8px;flex-wrap:wrap;padding:4px 0 8px;}',
@@ -108,7 +129,7 @@ export const THEME = [
   '.status-pet-field{display:flex;align-items:flex-start;gap:10px;min-width:0;}',
   '.status-pet-field-label{flex:0 0 40px;font-size:12px;line-height:18px;padding-top:3px;color:var(--dsw-alias-label-tertiary);}',
   '.status-pet-field-body{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}',
-  '.status-pet-library{flex:1 1 100%;display:flex;flex-direction:column;gap:1px;min-width:0;max-height:min(44vh,360px);overflow:auto;overscroll-behavior:contain;}',
+  '.status-pet-library{flex:1 1 100%;display:flex;flex-direction:column;gap:1px;min-width:0;max-height:var(--status-pet-scroll-h,min(44vh,360px));overflow:auto;overscroll-behavior:contain;}',
   '.status-pet-library-row{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;min-width:0;cursor:pointer;}',
   '.status-pet-library-check{flex:none;margin:0;cursor:pointer;}',
   '.status-pet-library-row canvas{flex:none;border-radius:3px;}',
@@ -147,10 +168,14 @@ export const THEME = [
   '.status-pet-stage-cell{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;width:100%;}',
   '.status-pet-inspect{width:auto;}',
   '.status-pet-board-wrap{position:relative;display:flex;width:min(100%,52vh,512px);aspect-ratio:1;}',
-  '.status-pet-grid{flex:1 1 auto;display:flex;flex-direction:column;gap:1px;min-width:0;min-height:0;contain:layout style;}',
-  '.status-pet-grid-row{display:flex;gap:1px;flex:1 1 0;min-height:0;contain:layout style paint;}',
-  '.status-pet-cell{flex:1 1 0;min-width:0;contain:layout style paint;box-shadow:inset 0 0 0 .5px var(--dsw-alias-border-l2);}',
-  '.status-pet-board-readonly .status-pet-cell{cursor:default;}',
+  // 画板只画两层：底下是**一张画布**（原分辨率、1:1 绘制，交给合成器 `pixelated`
+  // 放大），上面是一层 CSS 网格（`::after`）。 以前这里是一格一个 div —— 一张
+  // 128×128 的脸就是 16384 个节点、每格一条内阴影，切到「全身」要一百毫秒才提交完，
+  // 整页卡住。 网格间距写成 `100% / n`，`n` 由 board.ts 内联给出（头像 32 / 全身
+  // 128），所以画板不管被 flex 拉成多大，网格永远是一根 1 CSS px 的网线。
+  '.status-pet-grid{--status-pet-grid-n:32;position:relative;flex:1 1 auto;min-width:0;min-height:0;contain:layout style;}',
+  '.status-pet-grid>canvas{position:absolute;inset:0;width:100%;height:100%;}',
+  '.status-pet-grid::after{content:"";position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(to right,var(--dsw-alias-border-l2,rgba(127,127,127,.45)) 1px,transparent 1px),linear-gradient(to bottom,var(--dsw-alias-border-l2,rgba(127,127,127,.45)) 1px,transparent 1px);background-size:calc(100% / var(--status-pet-grid-n)) calc(100% / var(--status-pet-grid-n));}',
   '.status-pet-empty-body{border:.5px dashed var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-md);padding:16px;width:min(100%,52vh,512px);box-sizing:border-box;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;text-align:center;font-size:12px;color:var(--dsw-alias-label-secondary);}',
   '.status-pet-filmstrip{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:2px 0;min-width:0;}',
   '.status-pet-frame-thumb{padding:2px;border:.5px solid var(--dsw-alias-border-l2);border-radius:6px;background:transparent;cursor:pointer;line-height:0;flex:none;}',

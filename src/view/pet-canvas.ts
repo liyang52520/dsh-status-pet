@@ -57,6 +57,24 @@ export function resolveSource(source: SkinSource): () => ResolvedSkin | null {
   }
 }
 
+/** The re-bind key for a source: its CONTENT, cheaply.
+ *
+ *  This used to be `JSON.stringify(source)`, which the Workshop paid 200+ times
+ *  per keystroke — every row's canvas rebuilt the same string.  The key only has
+ *  to distinguish sources that behave differently, and the fields below are
+ *  exactly the ones `resolveSource` reads.  Exported so a test can pin that it
+ *  agrees with the mapping it keys. */
+export function sourceKeyOf(source: SkinSource): string {
+  switch (source.kind) {
+    case 'action':
+      return 'a\u0000' + source.skin + '\u0000' + source.actionId + '\u0000' + (source.face || '');
+    case 'skin':
+      return 's\u0000' + source.name + '\u0000' + (source.face || '');
+    default:
+      return source.kind;
+  }
+}
+
 // ── the component ──
 
 export interface PetCanvasProps {
@@ -112,7 +130,7 @@ export function PetCanvas(props: PetCanvasProps) {
   // serialized content, and read the live object from a ref.
   const sourceRef = React.useRef(source);
   sourceRef.current = source;
-  const sourceKey = JSON.stringify(source);
+  const sourceKey = sourceKeyOf(source);
 
   // The owner's roll callback, read through a ref so it never re-binds either.
   const onActionRef = React.useRef(props.onAction);

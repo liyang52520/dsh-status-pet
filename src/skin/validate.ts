@@ -9,7 +9,9 @@
 //
 // It has NO runtime caller: nothing validates on a hot path, because nothing
 // untrusted reaches the renderer (the assignment diff is sanitized where it is
-// applied).  `pnpm test` is the only caller.
+// applied).  `pnpm test` used to be the only caller, but the suite is gone — so this
+// module currently has NO caller at all.  Call `validateArtwork` by hand (or from a
+// throwaway script) after an edit to `catalog.ts`; nothing does it for you.
 //
 // The nibble table is imported from `pixels.ts` so the charset and the colour
 // check are one pass, never two.

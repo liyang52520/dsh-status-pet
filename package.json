@@ -6,10 +6,7 @@
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
-    "typecheck": "tsc --noEmit",
-    "pretest": "tsdown",
-    "test": "node --test 'test/*.test.ts'",
-    "bench": "node bench/store.mjs"
+    "typecheck": "tsc --noEmit"
   },
   "exports": {
     ".": "./index.js",

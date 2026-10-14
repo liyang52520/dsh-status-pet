@@ -4,12 +4,21 @@
 
 type TickFn = (now: number) => void;
 const tickers = new Set<TickFn>();
+/** The iteration order handed to the frame.  Rebuilt only when the ticker SET
+ *  changes — a surface attaching or detaching, i.e. a scroll crossing the
+ *  warm-up margin — so the steady state allocates nothing per frame. */
+let order: TickFn[] = [];
+let orderStale = false;
 let raf = 0;
 let watchingVisibility = false;
 
 function frame(now: number): void {
   raf = 0;
-  for (const tick of Array.from(tickers)) tick(now);
+  if (orderStale) {
+    order = Array.from(tickers);
+    orderStale = false;
+  }
+  for (let i = 0; i < order.length; i++) order[i](now);
   if (tickers.size) raf = requestAnimationFrame(frame);
 }
 
@@ -32,6 +41,7 @@ function onVisibility(): void {
  *  callback and, when it was the last, cancels the rAF loop. */
 export function addTicker(tick: TickFn): () => void {
   tickers.add(tick);
+  orderStale = true;
   if (!watchingVisibility && typeof document !== 'undefined'
     && typeof document.addEventListener === 'function') {
     document.addEventListener('visibilitychange', onVisibility);
@@ -39,10 +49,17 @@ export function addTicker(tick: TickFn): () => void {
   }
   ensureRunning();
   return () => {
-    tickers.delete(tick);
+    if (!tickers.delete(tick)) return;
+    orderStale = true;
     if (!tickers.size && raf) {
       cancelAnimationFrame(raf);
       raf = 0;
     }
   };
+}
+
+/** How many surfaces are currently attached to the clock.  The perf contract
+ *  reads this: off-screen canvases must NOT be here. */
+export function tickerCount(): number {
+  return tickers.size;
 }

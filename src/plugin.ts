@@ -9,6 +9,7 @@ import { ActionViewer } from './view/settings/action-panel.ts';
 import { SkinCards } from './view/settings/skin-cards.ts';
 
 import { FACES, LIVE_ZOOM } from './skin/geometry.ts';
+import { tickerCount } from './platform/clock.ts';
 import { DEFAULT_SKIN, BUILTIN_SKINS } from './skin/registry.ts';
 import { KEY, SCHEMA, CHANGE_EVENT, readStored, writeStored } from './skin/storage.ts';
 import { activeSkin, bestSkin, skinFor, actionSkinFor, chooseSkin, saveAssignments, installCatalog, onSkinChange } from './skin/session.ts';
@@ -77,6 +78,9 @@ export const skinTools = {
   onStoreWrite: (fn: () => void) => { /* no-op — session owns the wiring */ },
   // ── session ──
   activeSkin,
+  /** How many surfaces are attached to the shared frame clock right now.
+   *  Off-screen canvases must not be among them (platform/visibility.ts). */
+  tickerCount,
   resolveBestSkin: bestSkin,
   resolveSkin: (storedLike: unknown) => {
     // adapter: old signature resolved from a stored-like object

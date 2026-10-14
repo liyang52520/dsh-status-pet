@@ -44,6 +44,20 @@ export interface ResolvedAnimation {
    *  Optional: a hand-built animation in a test carries no id. */
   id?: string;
   frames: ResolvedFrame[];
+  /** One full play-through, in ms.  Computed once here instead of re-summing
+   *  the frame list on every tick (the reducer asks for it two or three times
+   *  per frame, per surface).  Optional so a hand-built animation still works:
+   *  `cycleMsOf` falls back to the sum. */
+  totalMs?: number;
+}
+
+/** One animation's cycle length in ms. */
+export function cycleMsOf(animation: ResolvedAnimation): number {
+  if (typeof animation.totalMs === 'number') return animation.totalMs;
+  let sum = 0;
+  for (let i = 0; i < animation.frames.length; i++) sum += animation.frames[i].ms;
+  animation.totalMs = sum;
+  return sum;
 }
 
 /** One state's animations: what the player may roll between. */
@@ -67,15 +81,18 @@ export interface ResolvedSkin {
 
 function animationOf(action: Action, face: FaceName): ResolvedAnimation {
   const scale = offsetScale(face);
-  return {
-    id: action.id,
-    frames: action.frames.map((frame) => ({
-      ms: frame.ms ?? action.frameMs,
+  let totalMs = 0;
+  const frames = action.frames.map((frame) => {
+    const ms = frame.ms ?? action.frameMs;
+    totalMs += ms;
+    return {
+      ms,
       sprite: spriteFor(faceFor(frame, face)),
       dx: (frame.dx || 0) * scale,
       dy: (frame.dy || 0) * scale,
-    })),
-  };
+    };
+  });
+  return { id: action.id, frames, totalMs };
 }
 
 /** The animation a state plays when the artwork names nothing (and what the pen

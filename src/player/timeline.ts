@@ -14,10 +14,7 @@
 import type { AnimationPolicy, AnimationRotation } from './rotation.ts';
 import { advanceAnimation, startAnimation } from './rotation.ts';
 import type { ResolvedAnimation, ResolvedFrame } from '../skin/resolve.ts';
-
-function cycleMs(animation: ResolvedAnimation): number {
-  return animation.frames.reduce((sum, frame) => sum + frame.ms, 0);
-}
+import { cycleMsOf as cycleMs } from '../skin/resolve.ts';
 
 export interface PlaybackState {
   stateName: string;

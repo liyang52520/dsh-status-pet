@@ -7,8 +7,9 @@
 //
 // V2 widened this from 9 states to 22.  The rule for adding one stays the same:
 // **a state must be backed by a signal that actually exists** (see
-// behavior/facts.ts and docs/context-states-v2.md §2).  A state without a real
-// signal is a state that will never be reached — decoration, not behaviour.
+// behavior/facts.ts; the old rationale doc docs/context-states-v2.md §2 is deleted).
+// A state without a real signal is a state that will never be reached — decoration,
+// not behaviour.
 
 /** The 22 states the pet can be in.  Keys of `STATES`; returned by deriveState. */
 export type PetState =

@@ -43,9 +43,23 @@ export function SettingsPage(props: { t?: Translator } | null) {
   const selected = library.find((a) => a.id === actionId) || library[0] || null;
   void rev;
 
-  // The eleven state rows: one line each, grouped states / reactions.
+  // How many actions each state plays — computed ONCE per library, not once per
+  // row.  This used to be `library.filter(...)` inside `stateRow`, i.e. 24 × 106
+  // `includes` on every render of the Workshop, and the profile showed it as the
+  // single biggest plugin frame in the whole assignment flow.
+  const playsByName = new Map<string, number>();
+  for (let i = 0; i < library.length; i++) {
+    const used = library[i].usedBy;
+    for (let k = 0; k < used.length; k++) playsByName.set(used[k], (playsByName.get(used[k]) || 0) + 1);
+  }
+
+  // The 24 state rows: one line each, grouped states / reactions.  They live in
+  // their OWN scrolling box — 24 rows are far taller than the action library
+  // beside them, and the page belongs to the whole settings form, not to this
+  // one column.  See `.status-pet-state-scroll` in platform/theme.ts (the cap is
+  // the same knob the library uses, so the two columns can never drift apart).
   const stateRow = (name: string) => {
-    const plays = library.filter((a) => a.usedBy.includes(name)).length;
+    const plays = playsByName.get(name) || 0;
     const on = view === 'states' && stateName === name;
     return h('button', {
       key: name,
@@ -82,10 +96,12 @@ export function SettingsPage(props: { t?: Translator } | null) {
       view === 'states'
         ? h('div', { className: 'status-pet-columns' },
             h('div', { className: 'status-pet-state-list' },
-              h('div', { className: 'status-pet-list-caption' }, t('settings.master.states')),
-              ...[...STATE_NAMES].filter((n) => n in STATES).map(stateRow),
-              h('div', { className: 'status-pet-list-caption' }, t('settings.master.reactions')),
-              ...[...STATE_NAMES].filter((n) => n in REACTIONS).map(stateRow),
+              h('div', { className: 'status-pet-state-scroll' },
+                h('div', { className: 'status-pet-list-caption' }, t('settings.master.states')),
+                ...[...STATE_NAMES].filter((n) => n in STATES).map(stateRow),
+                h('div', { className: 'status-pet-list-caption' }, t('settings.master.reactions')),
+                ...[...STATE_NAMES].filter((n) => n in REACTIONS).map(stateRow),
+              )
             ),
             h(StateAssignments, {
               key: 'assign:' + skin,
