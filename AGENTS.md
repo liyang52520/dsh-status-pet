@@ -19,7 +19,7 @@ skin's own actions each state plays**.
 
 | Layer | Where | What lives here | Rendering |
 |---|---|---|---|
-| Resident | dock, far left | the pet itself, plus her **speech line** when enabled | the 32 px **avatar** face, backing 40×40, at `LIVE_ZOOM` → **16 CSS px of art**; the line is plain 12 px text |
+| Resident | dock, far left | the pet itself, plus her **speech line** when enabled | the 32 px **avatar** face, backing 40×40, at `LIVE_ZOOM` → **16 CSS px of art**; the line is plain 12 px text in a **fixed-width box** (long lines scroll inside it, so the dock never moves) |
 | Peek | the click popup | the big animated **full body** + every interaction | the 128 px **body** face, backing 160×160, at `LIVE_ZOOM` → **64 CSS px of art** |
 | Workshop | Settings → Status Pet | skin cards, the dock-line setting, ONE axis **状态** / **动作** | 状态 header at `LIVE_ZOOM`; 动作 board at 1:1; every library row a PLAYING thumbnail at 1:1 |
 
@@ -34,7 +34,7 @@ skin's own actions each state plays**.
 | Rendering | Canvas 2D, **integer ratios only** |
 | Sprite model | One action = one animation with TWO faces — `art.avatar` (required) and `art.body` (optional, falls back to avatar at 4×), 1–8 frames. Frame `ms` / `dx` / `dy` are SINGLE SOURCE. A state holds a list of action ids (≤64); empty/absent = follow idle. The dock leads, the popup mirrors. |
 | Text model | TWO kinds of text, deliberately separate — the **status** (22 keys + `toolNamed`, tooltip + `aria-label`, derived from facts, never moved by artwork) and the **line** (~3200 per locale across five layers: state pools with **sequences**, **bridges** per transition, **continuers** (murmurs), **events** (edge reactions) and **topics** (target continuity), rendered with live context variables). The dock OWNS the line and hands the same string to the popup. |
-| Discourse model | `stepDiscourse` is a pure fold: recency window (shuffle-bag), bursts (`beat`), continuers that **do not break sequence memory**, event preemption on fact edges, topic edges that speak once per change, and tone choice biased by mood. Every rule is unit-tested against synthetic tables AND smoke-tested against the real ones. |
+| Discourse model | `stepDiscourse` is a pure fold: recency window (shuffle-bag), bursts (`beat`), continuers that **do not break sequence memory**, event preemption on fact edges, topic edges that speak once per change, tone choice biased by mood, and **留白** (a whole silent beat). Every rule is unit-tested against synthetic tables AND smoke-tested against the real ones. |
 | State model | 22 states + 2 reactions, every one backed by a real signal: pending interaction kind (incl. `plan-review`), running tool calls (name→category, raw args, turn/step, start time, concurrency), assistant stream block kind (text/reasoning/tool-call). |
 | Dependencies | `react` + seeded `@deepseek-ai/dsh-client-ui-primitives` (guarded; native `title` fallback), both from the web shell |
 | Build | **tsdown**, two IIFE builds: `src/index.ts` → `client.js` (628 kB, gzip 141 kB), `src/artwork.ts` → `client.artwork.js` (15.6 MB, fetched on demand) |
@@ -70,7 +70,7 @@ src/
     library.ts         action library reads + assignment mutations
     overrides.ts       user diff + sanitizer (applyDiff)
     storage.ts         schema 1 + read/write (memoized by raw text); `dockText`
-    display.ts         dockText() / setDockText() / onDockTextChange() — the line's placement
+    display.ts         dockText() / dockLineWidth() — the line's placement AND its box width
     tones.ts           action → tone side table (GENERATED), 106 entries
     registry.ts        built-in registry (the chunk installs here)
     documents.ts       documentOf / libraryOf (reads, memoized per store revision)
@@ -93,15 +93,16 @@ src/
   view/                                React components
     pet-canvas.ts      <PetCanvas> — the ONE playing element
     line.ts            useLine — the pure text policy on a self-driving timer
+    line-scroll.ts     the line box: FIXED width + in-box scroll (planScroll + hook)
     reduce-motion.ts   useReducedMotion
     reaction.ts        useReaction
     seat.ts            usePetStatus
     dock/              pill.ts (the dock button + her line), popup.ts (click popup)
-    settings/          page.ts, skin-cards.ts, dock-text.ts (关闭/左/右),
+    settings/          page.ts, skin-cards.ts, dock-text.ts (关闭/左/右 + 窄/中/宽),
                        action-panel.ts, action-picker.ts,
                        action-thumb.ts, assignment-list.ts, board.ts, filmstrip.ts,
                        frame-canvas.ts, field.ts, confirm.ts
-test/                  node:test suite (18 files, 158 tests)
+test/                  node:test suite (19 files, 186 tests)
 docs/                  dialogue-v3.md (the V3 contract: discourse engine + the new layers)
                        v3-copy-brief.md / v3-topup-brief.md (writer briefs)
                        context-states-v2.md (V2) · text-layer-design.md (V1)
@@ -217,12 +218,40 @@ Two kinds of text, deliberately not the same thing:
 | Chosen by | `deriveState(facts)` | `stepDiscourse` (V3): state + facts + events + topic + recency + beats + mood + tone |
 | Rendered with | nothing | live variables (`{file}` `{cmd}` `{pat}` `{q}` `{url}` `{secs}` `{n}` `{turn}` `{step}` `{nq}` `{why}` `{name}` …) |
 | Must be accurate | yes — a skin change may never move it | no, it is flavour |
-| Can rotate | no | yes, every 7–9.5 s |
+| Can rotate | no | yes — every 7–9.5 s while things change, stretching to 21–28.5 s once the state has been still for a while, and sometimes a **留白**: a whole silent beat (10–18 s) |
 
 **The dock owns the line.**  `useLine` runs in `pill.ts`; the popup is handed the very
 same string as a prop, so the two cannot drift — there is no second rotation.  Petting
 in the popup calls back into the dock (`onPet`), so animation, caption and dock label
 all change together.
+
+**The line box is FIXED width, and long lines scroll inside it.**  The dock row is a
+centered flex (the host's `.yhfFVG_dock` is `justify-content:center`), so a label whose
+width followed its text re-centered the entire status bar on every beat — and the longer
+the line, the more room it took from the dock's other items.  `view/line-scroll.ts` owns
+the fix: `planScroll` (pure: whether to scroll, how long one pass takes) plus
+`useLineScroll` (measure `run.scrollWidth` vs the box, then hand the run a duration).
+**Where it lands is NOT a JS number** — the keyframe ends at
+`translateX(min(0px, calc(var(--status-pet-line-w) - 100%)))`, i.e. "the text's right edge
+against the box's right edge", computed by the browser from the real layout.  That is
+deliberate: a JS-computed `--status-pet-shift` has to be maintained *during* the animation,
+and changing it does not re-aim the animation — it swaps the target value, which stalls the
+text mid-pass or jerks it after the fill (`forwards`) lands.  A layout expression cannot
+over- or under-shoot, however stale the measurement gets.
+The run's `key` is `text + geometry + measured duration`, so a new line (or a changed box
+or cadence) remounts it and the pass always starts at the left edge with its final speed;
+**one pass only** (`animation-iteration-count:1`, filled at the tail), because a line that
+is not changing must never replay itself.  No `ResizeObserver` / `fonts.ready` re-measure —
+that is exactly the "swap the target mid-animation" hazard.  `prefers-reduced-motion` never
+scrolls — it falls back to an ellipsis, still inside the same fixed box.  The popup's caption uses the
+very same box, so the anchored panel does not breathe either.
+
+**How wide that box is, the user picks** — 窄 / 中 / 宽 = 48 / 66 / 100 px (default
+**中**), stored as `dockLineWidth` and offered beside the placement.  The dock writes the
+chosen px onto the label as `--status-pet-line-w` (`theme.ts` carries `medium` as the
+pre-paint fallback); the width is therefore a CONSTANT, never derived from the viewport or
+the text.  It is a trade-off the user owns: wider says more at once, narrower takes less
+room and scrolls more.
 
 **Where the context comes from.**  `seat.ts` folds DSH's real signals into `PetFacts`
 (§Status sources above); `deriveState` names the WORK; `context.ts` turns a running
@@ -258,6 +287,8 @@ a single real line:
 | **recency window** (`lineRecentWindow = 24`) | she stops repeating herself; the pool is a shuffle-bag, not dice |
 | **bursts** (`beat`, `lineBurstChance`, `lineBurstMs`) | the rhythm stops being a metronome — a thought can arrive in two quick beats |
 | **continuers** (200 murmurs) | she has something to say between sentences — and a murmur **does not break sequence memory**, so she interrupts herself and then finishes the thought |
+| **留白** (`silent`, `lineSilenceChance`, `lineSilenceMs`) | 说够一段之后她可能**整拍不吭声**（10–18 s）—— 只把停顿拉长永远还是"每 N 秒念一句"，留白才有呼吸 |
+| **越久越稀** (`still`, `lineIdleStretch`, `lineIdleMax`) | 状态一直不换时，停顿逐级 ×1.5、×2、×2.5、封顶 ×3（7–9.5 s → 21–28.5 s）。 开场那种"有活干"的节奏是对的，但一个长工具跑几分钟之后它就只剩噪音；换状态/事实立刻归零重启 |
 | **events** (10 fact edges) | she reacts to what YOU just did (queued a message, approved, answered, failed, opened her) instead of narrating her own state |
 | **topics** (3 pools) | she notices the target changed / came back / that this is the Nth one — spoken **once per change**, never every beat |
 | **mood** (`failStreak`, `spoken`) | a losing streak biases worry, a fresh start biases bright, a long clean run biases calm |
@@ -275,8 +306,9 @@ visually hidden `role="status"` node; the line rotates outside it.  The dock lab
 `aria-hidden` (the button already announces the truth); the popup's visible caption is
 not hidden (hiding visible text is an anti-pattern).
 
-**The line's placement is the second thing a user owns**: `off` / `left` / `right`
-(default `right`), persisted as `dockText` via `skin/display.ts`, offered by
+**The line's placement and its width are the second thing a user owns**: `off` / `left` /
+`right` (default `right`) as `dockText`, and `narrow` / `medium` / `wide` (default
+`medium`) as `dockLineWidth` — both via `skin/display.ts`, both offered by
 `view/settings/dock-text.ts`.  `off` arms no timer at all.
 
 **Editing copy.**  The documents are the source; the TS is generated:
@@ -332,11 +364,13 @@ BODY_SCALE = 4
 { "v": 1,
   "skin": "whale-chan",
   "assignments": { "whale-chan": { "tool": ["xie-daima"] } },
-  "dockText": "right" }
+  "dockText": "right",
+  "dockLineWidth": "medium" }
 ```
 
-`dockText` is optional (`off` / `left` / `right`); an unknown or absent value reads as
-the default, and an invalid one is never written.  The schema version does not move.
+`dockText` (`off` / `left` / `right`) and `dockLineWidth` (`narrow` / `medium` / `wide`)
+are both optional; an unknown or absent value reads as the default, and an invalid one is
+never written.  The schema version does not move.
 
 The artwork is never stored — only ids.  Writes go through synchronously; the in-memory document is memoized by the raw storage text, and every cache downstream is keyed by object identity.  A foreign payload (an older install's document) is deliberately not interpreted — it reads as an empty store, and the next write replaces it.
 
@@ -361,9 +395,11 @@ The dock is a read-out; the popup is the toy.  Without the popup primitives (`PO
 TUNING = { reactToStatus: true, sleepAfterMs: 60_000, stateMinDwellMs: 150,
            minPlays: 3, playJitter: 2,
            lineDwellMs: 7000, lineJitterMs: 2500, slowToolMs: 45_000,
+           lineIdleStretch: 0.5, lineIdleMax: 3,
            lineRecentWindow: 24, lineMaxBeat: 3,
            lineBurstChance: 0.25, lineBurstMs: [1200, 2600],
            lineContinuerChance: 0.22, lineContinuerMs: [2500, 5000],
+           lineSilenceChance: 0.3, lineSilenceMs: [10_000, 18_000],
            lineEventMs: [1500, 3000], topicManyAt: 4 }
 ```
 
@@ -373,6 +409,19 @@ that fast cannot be read.  A state change and a facts-signature change bypass it
 becomes the honest story and the pet switches from the work (`shell`) to the wait (`slow`).
 The V3 knobs above shape the *rhythm of the conversation*: how long before a line may
 repeat, how long a burst may run, how often a murmur slips in, how fast a reaction lands.
+
+`lineSilenceChance` / `lineSilenceMs` are the **留白**: on ~30% of the ordinary (non-burst)
+beats she says nothing for 10–18 s.  Two rules keep it from becoming a bug — a silence is
+never followed by another silence (so the pause is bounded), and a state or facts-signature
+change always interrupts it.
+
+`lineIdleStretch` / `lineIdleMax` are the **lean-back**: `still` counts the beats advanced
+inside ONE state, and the normal dwell is multiplied by `1 + lineIdleStretch × still`,
+capped at `lineIdleMax`.  A state or fact change resets it, so the 7–9.5 s cadence is what
+you get whenever something is actually happening; a long tool that just sits there decays
+to 21–28.5 s.  Measured on the real tables, 60 virtual minutes with one long tool running
+(no state change): **6.9 → 2.9 lines/min**, while the 留白 beats stay 15–25% of the wall
+clock.
 
 ---
 
@@ -430,8 +479,9 @@ repeat, how long a burst may run, how often a murmur slips in, how fast a reacti
 | `performance.test.ts` | identity-keyed caches, reference sharing, tiny payload |
 | `bundle.test.ts` | built `client.js` registration, apply(), artwork chunk |
 | `lines.test.ts` | the copy contract (shared with the CLI), zh/en symmetry, **docs ↔ source drift guard**, variables, sequences, bridges, action tones, artwork coverage |
-| `discourse.test.ts` | the V3 engine on synthetic tables (recency, beats, continuers that keep the sequence alive, events, topic edges, mood, reduced motion, reproducibility) **and** a smoke test on the real tables |
-| `display.test.ts` | the dock-line setting: default, sanitizing, no redundant writes, foreign schema |
+| `discourse.test.ts` | the V3 engine on synthetic tables (recency, beats, continuers that keep the sequence alive, 留白 and its two invariants, the idle lean-back and its reset, events, topic edges, mood, reduced motion, reproducibility) **and** a smoke test on the real tables |
+| `display.test.ts` | the dock-line settings (placement + box width): defaults, sanitizing, no redundant writes, foreign schema, and that the widths are ordered fixed pixels |
+| `line-scroll.test.ts` | the line box: fixed-width CSS (never `max-width`-only, never viewport-relative, `flex:none` so the width IS the knob), the scroll plan (speed, cycle clamps, reduced motion, idempotence), the endpoint as a layout expression (`min(0, box - 100%)`, never a JS `--status-pet-shift`; the formula must equal `planScroll(...).shiftPx`), a stable `runKey`, the keyframe ↔ `SCROLL.holdPct` pairing, and that the pass plays exactly once |
 | `context.test.ts` | `argsRaw` → variables, truncation, the `{var}` renderer, and the "all variables empty" rule |
 | `tool-catalog.test.ts` | wire tool name → category, the total fallback, one category per tool |
 
@@ -448,13 +498,14 @@ repeat, how long a burst may run, how often a murmur slips in, how fast a reacti
 7. The line sits to the RIGHT of the avatar, changes every 7–9.5 s, never repeating the
    previous one — and it names the real thing: the file on a `read`, the command on a
    `shell`, the pattern on a `search`, the seconds on a `slow`.  Run a command with a
-   long name: the line must truncate, not overflow.
+   long name, and with a very long one: the pill must not get wider, the line must scroll
+   inside its box instead of truncating mid-word, and the dock's neighbours must not move.
 8. Open the popup: the caption is the SAME line the dock is showing, and it follows the
    dock's rotation — then click the panel: hearts AND the caption/label switch to a
    `petted` line together.
-9. Settings → 关闭 / 左侧 / 右侧 flips it instantly and survives a reload.  With 关闭,
-   only the hover tooltip remains.  With VoiceOver on: a state change is announced once,
-   and rotating lines are never spoken.
+9. Settings → 关闭 / 左侧 / 右侧 flips it instantly and survives a reload; 台词宽度
+   窄 / 中 / 宽 changes the box at once.  With 关闭, only the hover tooltip remains.  With
+   VoiceOver on: a state change is announced once, and rotating lines are never spoken.
 10. Watch one thing through several states (e.g. read → edit → shell → done): at each
     transition she should say something that **picks up the previous line** (a bridge),
     not something unrelated.
@@ -467,6 +518,12 @@ repeat, how long a burst may run, how often a murmur slips in, how fast a reacti
 13. Point her at three or four different files in one turn: at the first switch she should
     say something about the target changing, and at the fourth something about the count —
     and she must **not** repeat that comment on every subsequent line.
-14. Watch the rhythm: most lines land 7–9.5 s apart, but sometimes two arrive close
-    together.  While a long tool runs, a short murmur ("嗯…") should slip in between real
-    sentences — and the thought should still finish afterwards.
+14. Watch the rhythm: most lines land 7–9.5 s apart **while things are changing**, but
+    sometimes two arrive close together; leave one state running and the gaps should
+    stretch out (×1.5, ×2, … up to ×3 = 21–28.5 s) instead of tapping along at the same
+    cadence for an hour.  While a long tool runs, a short murmur ("嗯…") should slip in
+    between real sentences — and the thought should still finish afterwards.
+15. **留白**: now and then she simply stops talking for 10–18 s — the label (and the popup
+    caption, if open) goes blank but **nothing moves**: the pill must not shrink and the
+    dock's neighbours must not shift.  She never goes quiet twice in a row, and queuing a
+    message / a state change makes her speak immediately, even mid-silence.

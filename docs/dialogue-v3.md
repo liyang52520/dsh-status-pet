@@ -35,12 +35,13 @@
 | 近期窗口（shuffle-bag） | ✅ | `TUNING.lineRecentWindow = 24`，池子小于窗口也不空手（逐级放宽） |
 | 顿挫与成串 | ✅ | `lineMaxBeat` / `lineBurstChance` / `lineBurstMs` |
 | 填充词夹层 | ✅ | `TUNING.lineContinuerChance`，**不打断序列记忆**（`keepGroup`） |
+| 留白（V3.1） | ✅ | `silent` + `TUNING.lineSilenceChance` / `lineSilenceMs`：说够一段之后整拍不吭声 |
 | 事件抢占（10 个边沿） | ✅ | `view/seat.ts` 的 `detectEdges` + dock 的 popupOpen/Close；引擎 E0 |
 | 话题连续（3 个） | ✅ | `topicEdge` + `lastTopicSpoken`（**说过就不再啰嗦**） |
 | 心情与连击 | ✅ | `moodTone`（连败偏 worry / 开场偏 bright / 做久了偏 calm） |
 | 桥接可带续句 | ✅ | 桥接池走同一条序列规则（`sourceCanSequence`） |
 | 契约 | ✅ | `bench/v3-spec.ts`（新增四层 + 多样性六条）；CLI `check-v3-copy.mjs` / `check-v3-merged.mjs` |
-| 测试 | ✅ | `test/discourse.test.ts`：31 项，含**真实数据**的四层冒烟与序列接续 |
+| 测试 | ✅ | `test/discourse.test.ts`：35 项，含**真实数据**的四层冒烟与序列接续 |
 
 **数据（每语言，合稿后）**
 
@@ -56,7 +57,7 @@
 
 逐池条数与音区配比的标准值在 `bench/v2-spec.ts` 的 `SPEC`（冻结基线，`--update-baseline` 写入一次）。
 文风、变量、音区、序列、中英对齐、跨层查重，全部由 `test/lines.test.ts` 在 `pnpm test` 里强制；
-**18 个测试文件、158 项测试**。
+**18 个测试文件、162 项测试**。
 
 ---
 ---
@@ -134,6 +135,8 @@ E3 填充词     beat ≥ 1 且状态是"长时间在跑"的（shell/read/write/
               **两个关键点**：keepGroup（填充词之后序列还能接着说完）
                              source 不变（填充词是**插在**当前这件事里，不是换了一件事）
 E4 成串       beat < 3 且 random < 0.25 → 停顿缩到 1.2~2.6 s（第二拍）
+E4b 留白      不成串 && sameKey && 上一拍真的说了话 && random < 0.30
+              → **整拍不吭声** 10~18 s（id 不动，group 清空，beat 归零）
 E5 近期窗口   候选里排除 recent 里的 id；排除到空 → 只排除最近 4 条
 E6 音区       候选 = 动作音区 ∩（心情偏好音区）→ 退动作音区 → 退心情偏好 → 整池
 E7 心情       failStreak ≥ 2 → 偏好 worry；spokenCount < 3 → 偏好 bright（新鲜）
@@ -142,6 +145,33 @@ E8 新话头     抽取只在「独立句 + 序列首句」里挑 —— 绝不�
 ```
 
 **为什么填充词不碰 `lastGroup`**：这是这一层最"像人"的地方。真实对话里你说到一半会插一句"嗯…"，然后**接着把话说完**。允许填充词穿插而序列记忆不断，才有这个效果。
+
+## 3.1 留白（V3.1）—— "话是不是太密了点"
+
+V3 把节拍器治好了，但**总密度没变**：每条停顿 7~9.5 秒，一分钟还是 8 句，**永远有话**。
+用户的原话是"我突然觉得话是不是太密了点"。把 `lineDwellMs` 拉长只是"每 12 秒念一句"，
+量变而已 —— 缺的是**安静**本身，而引擎里原先根本没有"沉默"这个分支。
+
+`TUNING.lineSilenceChance`（0.3）/ `lineSilenceMs`（10 000~18 000）就是这样一拍：
+她说完一段话之后，有 30% 的概率**整拍不吭声**十几秒。四条约束，缺一个都会变成 bug：
+
+| 约束 | 为什么 |
+|---|---|
+| `!burst`（成串优先） | 成串是"一句赶着一句"，正是留白的反面；掷中了就别忽然收声 |
+| `sameKey` | 事实签名变了正是值得开口的时刻，留白不许盖过它 |
+| `!current.silent` | **不许连着留白**。一直低随机时会变成"死机"，而不是"沉默"；一分钟里的最长安静因此有上界（= 一个 `lineSilenceMs`） |
+| `current.beat >= 1` | 得先说过话，才谈得上"停一停" |
+
+留白不是"把话删掉"，而是**这一拍的内容就是"不说话"**：
+
+- `silent: true`，`id` **保持不变** —— dock 与 popup 靠它占住原来的宽度。若把节点从 DOM
+  里摘掉，pill 会随她说不说话而伸缩，后面整排按钮跟着左右跳；所以是 `visibility:hidden`。
+- `group: null`、`beat: 0` —— 长停顿是**段落边界**，不是接着上一串的中段说。
+- `recent` / `spoken` 不动 —— 她没有说话，不该占近期窗口、也不该算说过。
+- 事件、状态切换、事实签名变化**立刻打断**留白：`record()` 里 `silent: false`。
+
+实测（真实表，60 分钟虚拟时间）：干活中 **8.5 → 6.8 句/分钟**，闲着 **8.0 → 6.0**，
+15%~25% 的时间真的安静，最长一次安静 ≈ 18 秒。测试见 `test/discourse.test.ts` 的 E4b 四条。
 
 ## 4. 多样性约束（**机器强制**，接进唯一的契约实现）
 

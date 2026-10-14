@@ -25,12 +25,15 @@ export const en = {
   'settings.skins': 'Skin',
   'settings.skin.whale-chan': 'Whale-chan',
 
-  // ── the dock line: whether she speaks beside the pet, and on which side ──
+  // ── the dock line: whether she speaks beside the pet, on which side, how wide ──
   'settings.dockText': 'Dock line',
-  'settings.dockTextHint': 'Show what she is saying beside the dock pet — the same line the click popup shows. Turn it off to keep only the hover tooltip.',
   'settings.dockText.off': 'Off',
   'settings.dockText.left': 'Left',
   'settings.dockText.right': 'Right',
+  'settings.dockLineWidth': 'Line width',
+  'settings.dockLineWidth.narrow': 'Narrow',
+  'settings.dockLineWidth.medium': 'Medium',
+  'settings.dockLineWidth.wide': 'Wide',
 
   // ── the ONE axis: the two things this page works on ──
   'settings.view': 'Workshop view',

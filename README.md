@@ -48,7 +48,8 @@ pnpm dev        # build --watch
 
 ```json
 { "v": 1, "skin": "whale-chan",
-  "assignments": { "whale-chan": { "tool": ["xie-daima"] } } }
+  "assignments": { "whale-chan": { "tool": ["xie-daima"] } },
+  "dockText": "right", "dockLineWidth": "medium" }
 ```
 
 The artwork (15 MB of pixel data) is never stored — only a handful of action ids.

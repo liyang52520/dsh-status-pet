@@ -13,23 +13,55 @@ export const THEME = [
   '.status-pet-pill:active{background:var(--dsw-alias-interactive-bg-hover);}',
   '.status-pet-pill:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px;}',
   '.status-pet-anchor{display:inline-flex;line-height:0;}',
-  // The dock's line: a nowrap, ellipsised label inside the pill.  `.left` /
-  // `.right` are the only difference between the two placements — the margin
-  // is what keeps the text off the avatar.
-  '.status-pet-line{font-size:12px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(200px,26vw);}',
+  // The dock's line: a FIXED-width box inside the pill — never wider or narrower
+  // than `--status-pet-line-w`, whatever she is saying.  The dock row is a
+  // centered flex (the host's `.yhfFVG_dock`), so a box that followed its text
+  // would re-center the whole status bar on every beat; the width is the fix.
+  // `.left` / `.right` only move it to the other side of the avatar — the margin
+  // is what keeps the text off the sprite.
+  //
+  // `--status-pet-line-w` is the width knob — a FIXED px value, set inline by the
+  // dock from the user's 窄 / 中 / 宽 setting (skin/display.ts); the value here is
+  // the same as the `medium` preset, so the box is right before the first paint.
+  // What does not fit scrolls: see view/line-scroll.ts.
+  '.status-pet-line{--status-pet-line-w:66px;box-sizing:border-box;display:block;flex:none;width:var(--status-pet-line-w);overflow:hidden;font-size:12px;line-height:16px;white-space:nowrap;}',
   '.status-pet-line.left{margin-right:6px;}',
   '.status-pet-line.right{margin-left:6px;}',
+  // 台词本体：先按内容宽度排（`max-content`），装不下就省略号裁掉 —— 这是"不滚"
+  // 时的样子，也是还没量过时的样子。 滚动时解掉裁剪与钳制，交给外面那个固定宽度的
+  // 框去裁（否则位移出去的部分会被自己裁掉，右边反而留白）。
+  '.status-pet-line-run{display:block;width:max-content;max-width:100%;overflow:hidden;text-overflow:ellipsis;}',
+  // 一句**只滚一趟**：放完停在末尾（`forwards`），而末尾是贴着右缘的（位移 = 溢出量）
+  // ——右边不会剩下一条空白。 循环播放等于把同一句话一遍遍重放
+  // ——台词还没换它就一直重头来，看的人烦。 换台词时 `key={line}` 重挂 run，自然又
+  // 从左边开始；留白（同一句）和宽度改动都不会让它再动一次。
+  '.status-pet-line-run.scrolling{max-width:none;overflow:visible;animation-name:statusPetScroll;animation-duration:4000ms;animation-timing-function:linear;animation-iteration-count:1;animation-fill-mode:forwards;}',
+  // 12% / 88% 与 line-scroll.ts 的 `SCROLL.holdPct` 配对：两端各停一拍，中间匀速走完。
+  //
+  // 终点是**布局表达式**，不是 JS 量的数字：`--status-pet-line-w` 是框宽（继承下来），
+  // `100%` 是 run 自己的宽度 = 内容宽度，所以 `min(0px, 框宽 - 内容宽)` 正好是"内容
+  // 右缘贴住框右缘"——内容够宽时取 0（不动），溢出时取负的溢出量。 浏览器按真实排版
+  // 算，量错、换字体、动画途中重排都不可能让它多滚或少滚，更不会在动画结束后把文字
+  // 再推一下（旧写法把位移放进 CSS 变量，一改就等于改动画目标值）。
+  '@keyframes statusPetScroll{0%,12%{transform:translateX(0)}88%,100%{transform:translateX(min(0px,calc(var(--status-pet-line-w) - 100%)))}}',
+  // 留白：她这一拍不说话。 只隐藏、不卸载 —— 盒子还在（宽度也还在），dock 的其余
+  // 部分不会因为"她说不说话"而整体左右跳。（popup 的同一句同理。）
+  '.status-pet-line.silent,.status-pet-popup-title.silent{visibility:hidden;}',
   // Visually hidden, still announced: the popup's live region.
   '.status-pet-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;}',
   '.status-pet-popup{position:fixed;z-index:70;box-sizing:border-box;cursor:pointer;user-select:none;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);box-shadow:var(--dsw-elevation-panel);padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px;}',
   '.status-pet-popup-preview{border:none;background:transparent;cursor:pointer;line-height:0;border-radius:var(--dsw-radius-md);padding:4px;font-family:inherit;}',
   '.status-pet-popup-preview:hover{background:var(--dsw-alias-interactive-bg-hover);}',
   '.status-pet-popup-preview:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px;}',
-  '.status-pet-popup-title{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary);}',
+  // 弹窗字幕：和 dock 一样是固定宽度 —— 台词在弹窗里也每 7~9 秒换一次，宽度跟
+  // 着内容走的话，锚在宠物上的面板会跟着一胀一缩。 面板是悬浮层、地方够，所以它
+  // 不跟 dock 的三档宽度走。 短句居中（`margin:0 auto`），长句解掉钳制后从左滚。
+  '.status-pet-popup-title{--status-pet-line-w:min(200px,60vw);box-sizing:border-box;width:var(--status-pet-line-w);overflow:hidden;font-size:12px;line-height:18px;white-space:nowrap;color:var(--dsw-alias-label-secondary);}',
+  '.status-pet-popup-title .status-pet-line-run{margin:0 auto;}',
   '@keyframes statusPetPulse{0%,100%{background:transparent}50%{background:color-mix(in srgb, var(--dsw-alias-state-warn-primary) 24%, transparent)}}',
   '.status-pet-pill.attention{animation:statusPetPulse 1.6s ease-in-out infinite;}',
   '.status-pet-pill.error{background:color-mix(in srgb, var(--dsw-alias-state-error-primary) 18%, transparent);}',
-  '@media (prefers-reduced-motion: reduce){.status-pet-pill.attention{animation:none;background:color-mix(in srgb, var(--dsw-alias-state-warn-primary) 24%, transparent);}}',
+  '@media (prefers-reduced-motion: reduce){.status-pet-pill.attention{animation:none;background:color-mix(in srgb, var(--dsw-alias-state-warn-primary) 24%, transparent);}.status-pet-line-run.scrolling{animation:none;max-width:100%;overflow:hidden;}}',
   '.status-pet-section{flex-direction:column;width:100%;display:flex;}',
   '.status-pet-preview-button{border:none;background:transparent;cursor:pointer;line-height:0;border-radius:var(--dsw-radius-md);padding:8px;font-family:inherit;}',
   '.status-pet-preview-button:hover{background:var(--dsw-alias-interactive-bg-hover);}',

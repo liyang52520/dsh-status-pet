@@ -33,6 +33,9 @@ export interface Stored {
   /** Where the dock shows the speech line: 'off' | 'left' | 'right'.
    *  Absent means the default (see skin/display.ts). */
   dockText?: string;
+  /** How wide the (fixed) dock line box is: 'narrow' | 'medium' | 'wide'.
+   *  Absent means the default (see skin/display.ts). */
+  dockLineWidth?: string;
 }
 
 // ── reading ──

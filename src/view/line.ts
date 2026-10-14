@@ -7,6 +7,9 @@
 // "你排队了"会在后续每一拍里被反复当成新事件（那会让事件池刷屏）。
 //
 // reduced motion 下不武装计时器（引擎也只认状态/事实/事件的边沿）。
+//
+// 留白也一样是"这一拍的内容"：引擎决定她这会儿不说话，计时器照旧武装 ——
+// 沉默有它的长度，到点要醒。
 
 import { React } from '../platform/deps.ts';
 import { stepDiscourse } from '../behavior/discourse.ts';
@@ -35,8 +38,16 @@ export interface UseLineInput {
   active?: boolean;
 }
 
-/** 当前该显示哪一条台词的 id；无可显示时为 null。 文案由调用方用 `t(id)` 取。 */
-export function useLine(input: UseLineInput): string | null {
+/** 这一拍该显示什么：`id` 是台词的 id（无可显示时为 null），`silent` 是**留白** ——
+ *  她说够了，这一拍不吭声。 留白时 `id` 仍是上一条：界面靠它占住原来的宽度，
+ *  不能因为有话没话就把 dock 的布局抖一下。 */
+export interface LineBeat {
+  id: string | null;
+  silent: boolean;
+}
+
+/** 当前该显示哪一条台词的 id（无可显示时为 null）；`silent` 见上。 */
+export function useLine(input: UseLineInput): LineBeat {
   const reducedRef = useReducedMotion();
   const active = input.active !== false;
   const { state, tone, topic, turn, running, errored } = input;
@@ -46,6 +57,7 @@ export function useLine(input: UseLineInput): string | null {
   const lastRef = React.useRef(0);
   const consumedRef = React.useRef<string | number | undefined>(undefined);
   const [id, setId] = React.useState<string | null>(null);
+  const [silent, setSilent] = React.useState(false);
   const [tick, setTick] = React.useState(0);
 
   // 事件只在序号变化的那一拍喂给引擎。
@@ -60,6 +72,7 @@ export function useLine(input: UseLineInput): string | null {
     if (!active) {
       discourseRef.current = null;
       setId(null);
+      setSilent(false);
       return;
     }
     if (isFresh) consumedRef.current = input.eventSeq;
@@ -80,10 +93,12 @@ export function useLine(input: UseLineInput): string | null {
     discourseRef.current = next;
     lastRef.current = now;
     setId(next.id);
-    if (reducedRef.current || !next.id) return;
+    setSilent(next.silent);
+    // 留白也要武装计时器：`id` 为空不代表没事发生，留白**到点要醒**（V3.1）。
+    if (reducedRef.current || next.remainingMs <= 0) return;
     const timer = setTimeout(() => setTick((n) => n + 1), Math.max(200, next.remainingMs));
     return () => clearTimeout(timer);
   }, [key, tone, tick, active, state, factsKey, events, isFresh, input.eventSeq, turnMs, running, errored, topic, reducedRef]);
 
-  return id;
+  return { id, silent };
 }

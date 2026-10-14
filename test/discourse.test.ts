@@ -83,6 +83,42 @@ test('第一次说话：从状态池抽，并武装一个停顿', () => {
   assert.equal(s.beat, 1);
 });
 
+test('状态不换就越来越稀：停顿逐级拉长，封顶 lineIdleMax 倍', () => {
+  // always(0.5)：不成串（0.5 > lineBurstChance）、不留白（0.5 > lineSilenceChance），
+  // 只剩"正常停顿"这一条路，好把倍数看清楚。
+  const baseMs = TUNING.lineDwellMs + TUNING.lineJitterMs / 2;
+  let s = stepDiscourse(null, { ...base, state: 'shell', key: 'k' }, always(0.5), tables);
+  assert.equal(s.remainingMs, baseMs, '第一句是基础停顿');
+  assert.equal(s.still, 0, '刚进这个状态，静默深度为 0');
+
+  const seen: number[] = [];
+  for (let i = 0; i < 5; i++) {
+    s = tick(s, { state: 'shell', key: 'k' }, always(0.5));
+    seen.push(s.remainingMs);
+  }
+  for (let i = 1; i < seen.length; i++) assert.ok(seen[i] >= seen[i - 1], `只会越来越稀：${seen}`);
+  assert.ok(seen[0] > baseMs, '第二句就该比第一句晚');
+  const cap = Math.round(baseMs * TUNING.lineIdleMax);
+  assert.equal(cap, baseMs * TUNING.lineIdleMax, '封顶倍数是整数比');
+  assert.equal(seen[seen.length - 1], cap, `封顶在 ${TUNING.lineIdleMax} 倍：${seen}`);
+  assert.ok(seen[0] < cap, '是**逐级**拉长，不是一步到位');
+});
+
+test('状态一换，静默深度归零：立刻回到基础节奏', () => {
+  let s = stepDiscourse(null, { ...base, state: 'shell', key: 'k' }, always(0.5), tables);
+  for (let i = 0; i < 4; i++) s = tick(s, { state: 'shell', key: 'k' }, always(0.5));
+  assert.ok(s.still >= 4, `已经待在同一个状态里好几拍：${s.still}`);
+
+  const changed = tick(s, { state: 'done', key: 'k' }, always(0.5));
+  assert.equal(changed.still, 0, '换状态 → 归零');
+  assert.ok(changed.remainingMs <= TUNING.lineDwellMs + TUNING.lineJitterMs,
+    `换状态后是基础停顿，而不是继续拉长：${changed.remainingMs}`);
+
+  // 事实签名变了也是"有事发生"：这一拍立刻开口（走的是 key 边沿），深度同样不续。
+  const keyed = tick(s, { state: 'shell', key: 'k-2' }, always(0.5));
+  assert.notEqual(keyed.id, s.id, 'key 一变立刻换话');
+});
+
 test('停顿没到就不换话（同一个 id，时钟往下走）', () => {
   const a = stepDiscourse(null, base, always(0.5), tables);
   const b = stepDiscourse(a, { ...base, elapsedMs: 1000 }, always(0.5), tables);
@@ -248,6 +284,80 @@ test('不成串时回到正常停顿', () => {
   const a = stepDiscourse(null, base, always(0.5), tables);
   const b = tick(a, { state: 'idle' }, always(0.9));
   assert.ok(b.remainingMs >= TUNING.lineDwellMs, `应是长停顿：${b.remainingMs}`);
+});
+
+// ── E4b 留白 ──
+
+/** 一个"刚说完一句、序列也结束了"的状态：留白只能从这种状态冒出来。 */
+function afterALine(random = always(0.5)): DiscourseState {
+  const entry = stepDiscourse(null, { ...base }, random, tables);
+  return { ...entry, group: null, source: { kind: 'state', state: 'idle' } };
+}
+
+/** 掷出一次留白：成串那一掷给 0.9（不成串），留白那一掷给 0.1 → 整拍不吭声。 */
+function pauseRandom(): () => number {
+  return queue([0.9, 0.1, 0.5]);
+}
+
+/** 走到"她决定不说话"的那一拍。 */
+function pausedAfterALine(): DiscourseState {
+  const ready = afterALine();
+  return stepDiscourse(ready, { ...base, elapsedMs: ready.remainingMs + 1 }, pauseRandom(), tables);
+}
+
+test('留白：说够一段之后可能整拍不吭声，而且不换话头', () => {
+  const ready = afterALine();
+  const paused = stepDiscourse(ready, { ...base, elapsedMs: ready.remainingMs + 1 }, pauseRandom(), tables);
+  assert.equal(paused.silent, true, '不成串 + 留白掷中 → 整拍不吭声');
+  assert.equal(paused.id, ready.id, '留白不改话头：界面靠这个 id 占住宽度');
+  assert.equal(paused.beat, 0, '留白是段落边界，拍数归零');
+  assert.equal(paused.group, null, '长停顿之后不接着上一串的中段说');
+  assert.equal(paused.spoken, ready.spoken, '没说话就不算说过');
+  assert.equal(paused.recent.length, ready.recent.length, '留白不占近期窗口');
+  assert.ok(
+    paused.remainingMs >= TUNING.lineSilenceMs[0] && paused.remainingMs <= TUNING.lineSilenceMs[1],
+    `留白时长：${paused.remainingMs}`,
+  );
+});
+
+test('留白绝不连着来：安静过之后必须说一句，而且是正常停顿', () => {
+  const paused = pausedAfterALine();
+  // 同样的低随机（否则还会再留白）—— 连着两拍无声看起来像坏掉
+  const back = stepDiscourse(paused, { ...base, elapsedMs: paused.remainingMs + 1 }, always(0.1), tables);
+  assert.equal(back.silent, false, '上一拍已经安静过，这拍必须开口');
+  assert.ok(back.id, '必须说一句');
+  assert.ok(back.remainingMs >= TUNING.lineDwellMs, `留白之后是正常停顿：${back.remainingMs}`);
+  assert.equal(back.beat, 1, '安静之后的新段落从第一拍开始');
+});
+
+test('留白会被边沿打断：事件一响 / 事实一变，她立刻开口', () => {
+  const paused = pausedAfterALine();
+  assert.equal(paused.silent, true);
+
+  const rung = stepDiscourse(paused, { ...base, elapsedMs: 1, events: ['queue'] }, always(0.5), tables);
+  assert.ok(rung.id && rung.id.startsWith('event.queue.'), rung.id as string);
+  assert.equal(rung.silent, false, '事件抢占必须能盖过留白');
+
+  const moved = stepDiscourse(paused, { state: 'shell', key: 'k', elapsedMs: 1 }, always(0.5), tables);
+  assert.equal(moved.silent, false, '换了状态就得说话');
+  assert.ok(moved.id, '换状态必须有话');
+
+  const changedFacts = stepDiscourse(paused, { ...base, key: 'k|new', elapsedMs: 1 }, always(0.1), tables);
+  assert.equal(changedFacts.silent, false, '事实签名变了正是值得开口的时刻');
+  assert.ok(changedFacts.id);
+});
+
+test('reduced motion 与关掉的留白层都不留白', () => {
+  const ready = afterALine();
+  const reduced = stepDiscourse(
+    ready, { ...base, elapsedMs: ready.remainingMs + 1, reducedMotion: true }, always(0.1), tables);
+  assert.equal(reduced.silent, false);
+  assert.equal(reduced.id, ready.id, 'reduced motion 下只认边沿');
+
+  const off = stepDiscourse(
+    ready, { ...base, elapsedMs: ready.remainingMs + 1, layers: { silence: false } } as never, always(0.1), tables);
+  assert.equal(off.silent, false);
+  assert.ok(off.id, '关掉留白层就回到"永远有话"');
 });
 
 // ── E5 近期窗口 ──

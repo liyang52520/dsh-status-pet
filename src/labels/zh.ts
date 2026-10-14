@@ -19,12 +19,15 @@ export const zh = {
   'settings.skins': '皮肤',
   'settings.skin.whale-chan': '鲸鱼娘',
 
-  // ── 状态栏台词：宠物旁边说不说话，说在哪边 ──
+  // ── 状态栏台词：宠物旁边说不说话，说在哪边，那个框多宽 ──
   'settings.dockText': '状态栏台词',
-  'settings.dockTextHint': '在状态栏宠物旁边显示它正在说的话，与点击弹窗里显示的完全一致；关闭后只保留悬停提示。',
   'settings.dockText.off': '关闭',
   'settings.dockText.left': '左侧',
   'settings.dockText.right': '右侧',
+  'settings.dockLineWidth': '台词宽度',
+  'settings.dockLineWidth.narrow': '窄',
+  'settings.dockLineWidth.medium': '中',
+  'settings.dockLineWidth.wide': '宽',
 
   // ── 唯一的轴：这个页面只处理两样东西 ──
   'settings.view': '工作台视图',

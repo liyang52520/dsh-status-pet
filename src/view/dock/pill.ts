@@ -34,8 +34,9 @@ import { STATES } from '../../behavior/vocabulary.ts';
 import type { Tone } from '../../behavior/vocabulary.ts';
 import { LIVE_ZOOM } from '../../skin/geometry.ts';
 import { activeSkin } from '../../skin/session.ts';
-import { dockText, onDockTextChange } from '../../skin/display.ts';
-import type { DockText } from '../../skin/display.ts';
+import { dockLineWidth, dockText, onDockLineWidthChange, onDockTextChange } from '../../skin/display.ts';
+import type { DockLineWidth, DockText } from '../../skin/display.ts';
+import { DOCK_LINE_WIDTH_PX } from '../../skin/display.ts';
 import { ACTION_TONES } from '../../skin/tones.ts';
 import { translatorOrFallback } from '../../labels/index.ts';
 import { THEME } from '../../platform/theme.ts';
@@ -45,6 +46,7 @@ import type { DockSeatProps } from '../seat.ts';
 import { PetCanvas } from '../pet-canvas.ts';
 import type { SkinSource } from '../pet-canvas.ts';
 import { useLine } from '../line.ts';
+import { useLineScroll } from '../line-scroll.ts';
 import { DockPopup } from './popup.ts';
 
 /** Module-level so its identity is stable: a fresh source object per render
@@ -87,6 +89,10 @@ export function DockPet(props: DockSeatProps | null) {
   // ── The two things the user can move here ──
   const [place, setPlace] = React.useState<DockText>(() => dockText());
   React.useEffect(() => onDockTextChange(() => setPlace(dockText())), []);
+  // 台词框有多宽（窄 / 中 / 宽）。 它是一个**固定值**：dock 那行居中，框宽要是跟着
+  // 台词走，每一拍换台词都会让整条状态栏重新居中。 宽度变了 hook 会自己重量。
+  const [lineWidth, setLineWidth] = React.useState<DockLineWidth>(() => dockLineWidth());
+  React.useEffect(() => onDockLineWidthChange(() => setLineWidth(dockLineWidth())), []);
   // The action she is playing right now → its tone.  Reported by the surface on
   // a roll (every few seconds), never per frame.
   const [actionId, setActionId] = React.useState<string | null>(null);
@@ -111,7 +117,7 @@ export function DockPet(props: DockSeatProps | null) {
     setUiEvent({ kind: open ? 'popupOpen' : 'popupClose', seq: uiSeqRef.current });
   }, [open]);
 
-  const lineId = useLine({
+  const { id: lineId, silent } = useLine({
     state: face,
     key: lineKey(facts),
     tone,
@@ -125,6 +131,9 @@ export function DockPet(props: DockSeatProps | null) {
     active: place !== 'off',
   });
   const line = lineId ? renderLine(t(lineId), vars) : null;
+  // 台词框的宽度固定，装不下的在里面滚 —— 否则每一拍换台词都会让整条状态栏
+  // （`.yhfFVG_dock` 是居中的 flex）重新居中，看起来就是"闪"。 详见 view/line-scroll.ts。
+  const scroll = useLineScroll<HTMLSpanElement>(line, DOCK_LINE_WIDTH_PX[lineWidth]);
 
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   // Anchored popup mechanics, exactly as the host meter uses them.
@@ -172,11 +181,27 @@ export function DockPet(props: DockSeatProps | null) {
   // ② the line: visible, tinted like the rest of the dock chrome, and hidden
   // from assistive tech — the button already announces the truth, and a line
   // that changes on a timer must never be a live region.
+  //
+  // 盒子是固定尺寸的（`--status-pet-line-w`，用户选的窄/中/宽）：短句留一点余量、
+  // 长句在里面滚动，但**宽度永远不变** —— 状态栏不会因为台词长短而左右抽动，也不会
+  // 越变越长去挤旁边的 dock 项。 留白（`silent`）时她还在 DOM 里，只是
+  // `visibility:hidden`，宽度当然也还在。
+  //
+  // `key` 是给滚动用的：换一句（或改宽度、或量出来的时长变了）就重挂一次 run，
+  // 动画永远从左端、按**这一句最终**的时长跑，不会半路被改目标值。
   const label = line
     ? h('span', {
-        className: 'status-pet-line ' + (place === 'left' ? 'left' : 'right'),
+        ref: scroll.boxRef,
+        className: 'status-pet-line ' + (place === 'left' ? 'left' : 'right') + (silent ? ' silent' : ''),
+        style: { '--status-pet-line-w': DOCK_LINE_WIDTH_PX[lineWidth] + 'px' },
         'aria-hidden': 'true',
-      }, line)
+      },
+        h('span', {
+          key: scroll.runKey,
+          ref: scroll.runRef,
+          className: 'status-pet-line-run' + (scroll.scrolling ? ' scrolling' : ''),
+          style: scroll.style || undefined,
+        }, line))
     : null;
   const pet = h(PetCanvas, {
     source: ACTIVE_SOURCE,
@@ -203,6 +228,7 @@ export function DockPet(props: DockSeatProps | null) {
           state,
           status,
           line,
+          silent,
           t,
           // Petting in the popup pets the DOCK too, so the animation, the
           // caption and the dock label all say the same thing at the same time.
