@@ -8,16 +8,29 @@
 
 export const en = {
   label: 'Status Pet',
-  idle: 'Idle', sleep: 'Sleeping', think: 'Thinking…', stream: 'Responding…',
+  // ── the status truth: tooltip / aria-label.  Short, exact, never flavour ──
+  idle: 'Idle', sleep: 'Sleeping',
+  think: 'Thinking…', reasoning: 'Reasoning…', preparing: 'Preparing a call…', stream: 'Responding…',
+  shell: 'Running a command…', read: 'Reading a file…', search: 'Searching…', write: 'Editing a file…',
+  web: 'Fetching a page…', agent: 'Delegating…', plan: 'Planning…', deliver: 'Delivering…',
   tool: 'Running a tool…', toolNamed: 'Running {name}…',
-  approval: 'Waiting for your approval',
-  question: 'Waiting for your answer', error: 'Something went wrong',
-  done: 'Done', petted: 'Blushing', woken: 'Woken up',
+  slow: 'This step is taking a while…', multi: 'Juggling several things…',
+  approval: 'Waiting for your approval', question: 'Waiting for your answer', planReview: 'Waiting for your plan review',
+  error: 'Something went wrong', done: 'Done', petted: 'Blushing', woken: 'Woken up',
+  /** Fallback for `{name}` when the tool call has not reported one yet. */
+  toolGeneric: 'a tool',
 
   'settings.nav': 'Pet',
   'settings.previewHint': 'Click to pet it',
   'settings.skins': 'Skin',
   'settings.skin.whale-chan': 'Whale-chan',
+
+  // ── the dock line: whether she speaks beside the pet, and on which side ──
+  'settings.dockText': 'Dock line',
+  'settings.dockTextHint': 'Show what she is saying beside the dock pet — the same line the click popup shows. Turn it off to keep only the hover tooltip.',
+  'settings.dockText.off': 'Off',
+  'settings.dockText.left': 'Left',
+  'settings.dockText.right': 'Right',
 
   // ── the ONE axis: the two things this page works on ──
   'settings.view': 'Workshop view',
@@ -77,10 +90,23 @@ export const en = {
   'settings.hint.idle': 'At rest, nothing running',
   'settings.hint.sleep': 'After a minute idle',
   'settings.hint.think': 'Message sent, no output yet',
+  'settings.hint.reasoning': 'The model is thinking internally',
+  'settings.hint.preparing': 'Assembling the arguments for a tool call',
   'settings.hint.stream': 'Output is arriving',
+  'settings.hint.shell': 'A command or terminal action is running',
+  'settings.hint.read': 'Reading a file or a session record',
+  'settings.hint.search': 'Searching by pattern',
+  'settings.hint.write': 'Changing file contents',
+  'settings.hint.web': 'Fetching something from the web',
+  'settings.hint.agent': 'A subagent or teammate is doing it',
+  'settings.hint.plan': 'Recording a todo, a goal or a schedule',
+  'settings.hint.deliver': 'Handing the finished thing to you',
   'settings.hint.tool': 'A tool is executing',
+  'settings.hint.slow': 'One tool has been running over 45 s',
+  'settings.hint.multi': 'Two or more tools are running at once',
   'settings.hint.approval': 'Waiting for your approval',
   'settings.hint.question': 'Waiting for your answer',
+  'settings.hint.planReview': 'Waiting for you to review a plan',
   'settings.hint.error': 'The last turn failed',
   'settings.hint.done': 'Finished, not yet seen',
   'settings.hint.petted': 'Right after a click',

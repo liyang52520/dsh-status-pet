@@ -24,4 +24,40 @@ export const TUNING = {
   minPlays: 3,
   /** Up to this many extra plays, drawn at random, so the rhythm is not metronomic. */
   playJitter: 2,
+  /**
+   * How long one speech line is held before the player draws the state's next
+   * one.  Deliberately its own knob: an animation cycle is 1.2–3.4 s and text
+   * that fast cannot be read.  A state CHANGE and a change of the facts
+   * signature (a new tool, unread flipping) bypass the dwell.
+   */
+  lineDwellMs: 7000,
+  /** Up to this many extra ms on a line, drawn at random. */
+  lineJitterMs: 2500,
+  /**
+   * How long ONE tool call may run before "waiting" becomes the honest story.
+   * Past this the pet stops narrating the work (`shell`/`read`/…) and starts
+   * narrating the wait (`slow`) — the category still reaches the line as
+   * `{tool}`/`{secs}`, so nothing is lost.  45 s is deliberately well past an
+   * ordinary command, so `slow` stays meaningful instead of constant.
+   */
+  slowToolMs: 45_000,
+  /**
+   * 近期窗口：这么多条之内不重复说同一句。 独立抽签会复读（40 条的池子约 5 分钟
+   * 绕回来），窗口把"随机"变成"洗牌"。
+   */
+  lineRecentWindow: 24,
+  /** 一串最多几拍。 一串之内短打扮着长停顿，像人在追着一件事说。 */
+  lineMaxBeat: 3,
+  /** 这一拍之后有多大概率紧接着补一句（而不是等满停顿）。 */
+  lineBurstChance: 0.25,
+  /** 追赶时的停顿（ms）。 */
+  lineBurstMs: [1200, 2600] as const,
+  /** 手上有活时，有多大概率夹一句填充词（"嗯…"）。 */
+  lineContinuerChance: 0.22,
+  /** 填充词的停顿（ms）——比实句短，像随口应一声。 */
+  lineContinuerMs: [2500, 5000] as const,
+  /** 事件反应的停顿（ms）——反应要快，否则不像"听见了"。 */
+  lineEventMs: [1500, 3000] as const,
+  /** 本轮目标数到这个数，话题层改说"这已经是第几个了"。 */
+  topicManyAt: 4,
 } as const;

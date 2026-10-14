@@ -15,6 +15,7 @@ import { AVATAR_FACE } from '../../skin/geometry.ts';
 import type { FaceName } from '../../skin/geometry.ts';
 import { activeSkin, onSkinChange } from '../../skin/session.ts';
 import { SkinCards } from './skin-cards.ts';
+import { DockTextSetting } from './dock-text.ts';
 import { StateAssignments } from './assignment-list.ts';
 import { ActionViewer } from './action-panel.ts';
 
@@ -64,6 +65,7 @@ export function SettingsPage(props: { t?: Translator } | null) {
   return h('div', { className: 'status-pet-section' },
     h('style', null, THEME),
     h(SkinCards, { t }),
+    h(DockTextSetting, { t, onChanged: () => setRev((r) => r + 1) }),
     h('div', { className: 'status-pet-workshop' },
       h('div', { className: 'status-pet-axis', role: 'group', 'aria-label': t('settings.view') },
         VIEWS.map(([id, key]) =>

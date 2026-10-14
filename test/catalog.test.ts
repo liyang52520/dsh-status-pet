@@ -9,6 +9,8 @@ import { FACES } from '../src/skin/geometry.ts';
 import { documentOf } from '../src/skin/documents.ts';
 import { faceFor } from '../src/skin/face.ts';
 import { installCatalog } from '../src/skin/session.ts';
+import { MAX_SELECTION } from '../src/skin/model.ts';
+import { STATE_NAMES } from '../src/behavior/vocabulary.ts';
 
 // Install the catalog so the document layer can resolve.
 installCatalog(CATALOG);
@@ -45,12 +47,16 @@ test('every action has both faces present, and they are correctly sized', () => 
   }
 });
 
-test('every default state plays 1–4 actions and the library is much larger', () => {
+test('every state opens with a workable default assignment', () => {
   const art = CATALOG[DEFAULT_SKIN];
+  // V2 把默认分派铺到 24 个状态，idle 有意拿得最多（她出场最多），所以上限是
+  // 分配上限本身，而不是 V1 时代的"每状态最多 4 个"。
   for (const [state, ids] of Object.entries(art.states)) {
-    assert.ok(ids.length >= 1 && ids.length <= 4, `${state} plays 1–4 default actions`);
+    assert.ok(ids.length >= 1 && ids.length <= MAX_SELECTION, `${state} 有 1~${MAX_SELECTION} 个默认动作`);
+    assert.equal(new Set(ids).size, ids.length, `${state} 的默认动作不重复`);
   }
-  assert.ok(art.actions.length > 4 * Object.keys(art.states).length, 'library is far larger than default assignments');
+  assert.equal(Object.keys(art.states).length, STATE_NAMES.length, '每个状态名都有分派');
+  assert.ok(art.actions.length > Object.keys(art.states).length, '动作库远大于默认分派');
 });
 
 test('ids are unique, every action is named and traceable', () => {

@@ -71,6 +71,9 @@ export interface PetCanvasProps {
   zoom?: number;
   interactive?: boolean;
   className?: string;
+  /** Report a roll of the animation (the dock picks a speech line for that
+   *  action's tone).  Fires on a roll only, never per frame. */
+  onAction?: (actionId: string) => void;
   t?: Translator;
 }
 
@@ -94,8 +97,26 @@ export function PetCanvas(props: PetCanvasProps) {
   // The surface's scale function: the old default is 4× for the avatar face
   // (a 32px grid on an 80px canvas), 1× for the body face or a format-scaled
   // override mapped through this prop.
-  const scaleFor = (skin: ResolvedSkin): number =>
-    props.scale ?? (skin.face === AVATAR_FACE ? 4 : 1);
+  //
+  // Stable identity is load-bearing: the effect below re-binds on a scale change,
+  // so a fresh closure per render would tear the surface down — and restart the
+  // animation from frame 0 — every time the owner re-renders (which the dock now
+  // does whenever a new speech line or a new action lands).
+  const scaleFor = React.useCallback(
+    (skin: ResolvedSkin): number => props.scale ?? (skin.face === AVATAR_FACE ? 4 : 1),
+    [props.scale],
+  );
+
+  // Same reason: the source object is written inline at every call site, so its
+  // IDENTITY changes on every render while its CONTENT does not.  Re-bind on the
+  // serialized content, and read the live object from a ref.
+  const sourceRef = React.useRef(source);
+  sourceRef.current = source;
+  const sourceKey = JSON.stringify(source);
+
+  // The owner's roll callback, read through a ref so it never re-binds either.
+  const onActionRef = React.useRef(props.onAction);
+  onActionRef.current = props.onAction;
 
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   React.useEffect(() => {
@@ -104,17 +125,13 @@ export function PetCanvas(props: PetCanvasProps) {
     // Re-bind on every source change, because the skin closure is captured in
     // resolveSource at the call site, not here.  The source object changes, but
     // the *function* inside it must be re-evaluated.
-    const skinFn = resolveSource(source);
+    const skinFn = resolveSource(sourceRef.current);
     // Attach when the skin registry changes, the surface needs a re-tick;
     // the loop already resolves per-frame, so a fresh closure is not needed
     // as long as the function calls the session's live read.  But skinFor
     // calls resolveFor(readStored(),...), which IS per-frame.  And bestSkin
     // calls readStored() per tick.  So the closure is stable — no source
     // key needed here.
-    //
-    // The one thing that DOES change: activeSkin is cached by stored identity
-    // and the skin source kind changes when the skin card name changes.
-    // React's dependency array tracks the skinFn identity changing.
     const roll = props.lead ? 'lead' as const : props.follow ? 'follow' as const : 'free' as const;
     return startSurface(canvas, {
       skin: skinFn,
@@ -123,8 +140,9 @@ export function PetCanvas(props: PetCanvasProps) {
       scale: scaleFor,
       zoom,
       roll,
+      onAction: (id) => { const fn = onActionRef.current; if (fn) fn(id); },
     });
-  }, [source, scaleFor, zoom, props.follow]);
+  }, [sourceKey, scaleFor, zoom, props.follow, props.lead]);
 
   function onClick() { react('petted'); }
 

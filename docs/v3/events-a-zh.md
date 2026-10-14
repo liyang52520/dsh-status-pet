@@ -1,0 +1,126 @@
+# V3 台词词库 · 中文 · events-a（边沿反应）
+
+## events — 边沿反应 (120 条)
+
+| # | event | tone | line |
+|---|---|---|---|
+| 1 | greet | bright | 初次见面，我是鲸鱼娘 |
+| 2 | greet | bright | 嗨，我上线啦 |
+| 3 | greet | bright | 你好呀，我在这儿 |
+| 4 | greet | bright | 我醒了，今天也一起吧 |
+| 5 | greet | bright | 早，鲸鱼娘来报到 |
+| 6 | greet | bright | 终于见到你了 |
+| 7 | greet | bright | 我来陪你了 |
+| 8 | greet | bright | 上线成功，我准备好了 |
+| 9 | greet | bright | 嗯，我在的 |
+| 10 | greet | bright | 开工吧，我很精神 |
+| 11 | greet | bright | 看到你真好 |
+| 12 | greet | bright | 久等了，我来了 |
+| 13 | greet | formal | 鲸鱼娘，前来侍奉 |
+| 14 | greet | formal | 头一回见面，请多指教 |
+| 15 | greet | formal | 报到完毕，听候吩咐 |
+| 16 | greet | formal | 您好，我已经就位 |
+| 17 | greet | formal | 我是您的鲸鱼娘 |
+| 18 | greet | formal | 已在状态栏待命 |
+| 19 | greet | formal | 有吩咐请尽管说 |
+| 20 | greet | formal | 从今往后由我侍奉 |
+| 21 | greet | formal | 您好，久候多时 |
+| 22 | greet | formal | 请多关照 |
+| 23 | greet | formal | 已上线，随时听令 |
+| 24 | greet | formal | 需要我做什么，请讲 |
+| 25 | queue | bright | 收到，排上队了 |
+| 26 | queue | bright | 好，我记下了 |
+| 27 | queue | bright | 又来一条，接住了 |
+| 28 | queue | bright | 嗯，这条我记着 |
+| 29 | queue | bright | 排好啦，一条不落 |
+| 30 | queue | bright | {n} 条一起排上了 |
+| 31 | queue | bright | 好嘞，先搁在这 |
+| 32 | queue | bright | 记下了，马上到它 |
+| 33 | queue | bright | 又给我加活了，收到 |
+| 34 | queue | bright | 嗯，我拿小本记上 |
+| 35 | queue | bright | 排队中，马上轮到 |
+| 36 | queue | bright | 都排队了，我数着呢 |
+| 37 | queue | busy | 手头这个先收尾 |
+| 38 | queue | busy | 我一件一件来 |
+| 39 | queue | busy | 先做这个，再做那条 |
+| 40 | queue | busy | 消息收到了，稍等 |
+| 41 | queue | busy | 我加快一点，别急 |
+| 42 | queue | busy | 都在名单上，跑不掉 |
+| 43 | queue | busy | 手里还有活，我抓紧 |
+| 44 | queue | busy | 一条一条清过去 |
+| 45 | queue | busy | 嗯，排队了，我盯着 |
+| 46 | queue | busy | 别催，我记得清楚 |
+| 47 | queue | busy | 先记着，做完就翻出来 |
+| 48 | queue | busy | 队列又长了一点 |
+| 49 | approvalDone | formal | 好，那我接着往下走 |
+| 50 | approvalDone | formal | 行，我照您定的来 |
+| 51 | approvalDone | formal | 那个等待已经过去了 |
+| 52 | approvalDone | formal | 好的，我不多问 |
+| 53 | approvalDone | formal | 您那边处理好了，我接着 |
+| 54 | approvalDone | formal | 有回音了，我照办 |
+| 55 | approvalDone | formal | 好，听您的安排 |
+| 56 | approvalDone | formal | 我不看您选了哪边 |
+| 57 | approvalDone | formal | {name} 那边有回音了 |
+| 58 | approvalDone | formal | 好，我继续手头的活 |
+| 59 | approvalDone | formal | 结论怎样都行，我做下去 |
+| 60 | approvalDone | formal | 门开了，我往前走 |
+| 61 | approvalDone | calm | 嗯，等完了 |
+| 62 | approvalDone | calm | 那口气松下来了 |
+| 63 | approvalDone | calm | 好，我慢慢接着做 |
+| 64 | approvalDone | calm | {why} 那一桩，我等到了 |
+| 65 | approvalDone | calm | 反正我只管做下去 |
+| 66 | approvalDone | calm | 嗯，接下来照旧 |
+| 67 | approvalDone | calm | 到这儿就算过了 |
+| 68 | approvalDone | calm | 我接着干活就是了 |
+| 69 | approvalDone | calm | 心里踏实了一点 |
+| 70 | approvalDone | calm | 好，不提这个了 |
+| 71 | approvalDone | calm | 嗯，我都听你的 |
+| 72 | approvalDone | calm | {name} 的事，翻篇了 |
+| 73 | answered | calm | 明白了 |
+| 74 | answered | calm | 嗯，这下清楚了 |
+| 75 | answered | calm | 原来是这样 |
+| 76 | answered | calm | 好，我懂了 |
+| 77 | answered | calm | 心里有底了 |
+| 78 | answered | calm | 嗯，不糊涂了 |
+| 79 | answered | calm | 这下就顺了 |
+| 80 | answered | calm | 好，我照着做 |
+| 81 | answered | calm | 嗯，方向清楚了 |
+| 82 | answered | calm | 我记住你的回答了 |
+| 83 | answered | calm | 疑问没了，多谢 |
+| 84 | answered | calm | 那点疑问解开了 |
+| 85 | answered | busy | 收到，我这就去办 |
+| 86 | answered | busy | 好，{nq} 个都答上了 |
+| 87 | answered | busy | 有方向了，我开工 |
+| 88 | answered | busy | 嗯，接着往下走 |
+| 89 | answered | busy | 清楚了，马上动手 |
+| 90 | answered | busy | 我照这个往下排 |
+| 91 | answered | busy | 好，不再回头问了 |
+| 92 | answered | busy | {nq} 个问题都定了 |
+| 93 | answered | busy | 那就按你说的做 |
+| 94 | answered | busy | 懂了，我加快 |
+| 95 | answered | busy | 这下不用猜了，干活 |
+| 96 | answered | busy | 好，我把计划接着推 |
+| 97 | failed | worry | 呜，这次搞砸了 |
+| 98 | failed | worry | 我失败了 |
+| 99 | failed | worry | 对不起，没做成 |
+| 100 | failed | worry | 手一抖，全乱了 |
+| 101 | failed | worry | 呜…没接住 |
+| 102 | failed | worry | 我愣在这儿了 |
+| 103 | failed | worry | 又失败了 |
+| 104 | failed | worry | 缩起来一会儿 |
+| 105 | failed | worry | 是我没做好 |
+| 106 | failed | worry | 完了，出错了 |
+| 107 | failed | worry | 我把它弄坏了 |
+| 108 | failed | worry | 呜，我不太敢看你 |
+| 109 | failed | calm | 嗯，我知道了 |
+| 110 | failed | calm | 先停一下 |
+| 111 | failed | calm | 我缓一缓 |
+| 112 | failed | calm | 这次是我不对 |
+| 113 | failed | calm | 我重来一遍 |
+| 114 | failed | calm | 没关系，能修 |
+| 115 | failed | calm | 深呼吸 |
+| 116 | failed | calm | 错了就错了 |
+| 117 | failed | calm | 我看看是哪儿 |
+| 118 | failed | calm | 不慌，从头来 |
+| 119 | failed | calm | 我记住这个坑了 |
+| 120 | failed | calm | 嗯，先认下来 |

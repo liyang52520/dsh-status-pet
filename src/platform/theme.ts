@@ -13,6 +13,14 @@ export const THEME = [
   '.status-pet-pill:active{background:var(--dsw-alias-interactive-bg-hover);}',
   '.status-pet-pill:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px;}',
   '.status-pet-anchor{display:inline-flex;line-height:0;}',
+  // The dock's line: a nowrap, ellipsised label inside the pill.  `.left` /
+  // `.right` are the only difference between the two placements — the margin
+  // is what keeps the text off the avatar.
+  '.status-pet-line{font-size:12px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(200px,26vw);}',
+  '.status-pet-line.left{margin-right:6px;}',
+  '.status-pet-line.right{margin-left:6px;}',
+  // Visually hidden, still announced: the popup's live region.
+  '.status-pet-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;}',
   '.status-pet-popup{position:fixed;z-index:70;box-sizing:border-box;cursor:pointer;user-select:none;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);box-shadow:var(--dsw-elevation-panel);padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px;}',
   '.status-pet-popup-preview{border:none;background:transparent;cursor:pointer;line-height:0;border-radius:var(--dsw-radius-md);padding:4px;font-family:inherit;}',
   '.status-pet-popup-preview:hover{background:var(--dsw-alias-interactive-bg-hover);}',
@@ -27,6 +35,9 @@ export const THEME = [
   '.status-pet-preview-button:hover{background:var(--dsw-alias-interactive-bg-hover);}',
   '.status-pet-preview-button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px;}',
   '.status-pet-gallery-title{font-size:14px;line-height:20px;padding:16px 0 8px;}',
+  '.status-pet-docktext{display:flex;flex-direction:column;gap:6px;padding:12px 0 6px;border-bottom:.5px solid var(--dsw-alias-border-l2);}',
+  '.status-pet-docktext-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}',
+  '.status-pet-docktext-title{font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary);flex:none;}',
   '.status-pet-axis{display:flex;gap:4px;align-items:center;padding:12px 0 8px;border-bottom:.5px solid var(--dsw-alias-border-l2);}',
   '.status-pet-axis .status-pet-mini-button{font-size:13px;line-height:20px;padding:3px 14px;}',
   '.status-pet-workshop{display:flex;flex-direction:column;gap:2px;min-width:0;}',

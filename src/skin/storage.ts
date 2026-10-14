@@ -30,6 +30,9 @@ export interface Stored {
   skin?: string;
   /** Per-skin assignment diff: `{ 'whale-chan': { tool: ['xie-daima'] } }`. */
   assignments?: Record<string, Record<string, string[]>>;
+  /** Where the dock shows the speech line: 'off' | 'left' | 'right'.
+   *  Absent means the default (see skin/display.ts). */
+  dockText?: string;
 }
 
 // ── reading ──

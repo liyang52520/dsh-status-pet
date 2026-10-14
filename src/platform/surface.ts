@@ -47,6 +47,10 @@ export interface SurfaceOptions {
   /** CSS zoom on the element only; the backing store stays unscaled. */
   zoom?: number;
   roll?: SurfaceRole;
+  /** Called when the ANIMATION the surface is playing changes — not every tick,
+   *  only on a roll.  The dock uses it to pick a speech line for the tone she is
+   *  currently in; nothing else needs it. */
+  onAction?: (actionId: string) => void;
 }
 
 /** The CSS attributes every pet canvas shares. */
@@ -90,6 +94,9 @@ export function startSurface(
   let drawnSkin: ResolvedSkin | null = null;
   let drawnSpriteId: object | null = null;
   let drawnScale = 0;
+  /** The last action reported to `onAction`, so a tick that rolled nothing is
+   *  silent. */
+  let reportedActionId: string | null = null;
 
   function tick(now: number): void {
     const skin = skinFn();
@@ -123,6 +130,17 @@ export function startSurface(
 
     if (role === 'lead') {
       publish(skin.name, currentState, result.animationIndex, result.cycleStart, now);
+    }
+
+    // Report a ROLL, not a tick: the owner re-renders (it holds the tone), and
+    // an animation is held for several plays, so this fires every few seconds.
+    if (opts.onAction) {
+      const action = animations[result.animationIndex % animations.length];
+      const actionId = action && action.id ? action.id : null;
+      if (actionId && actionId !== reportedActionId) {
+        reportedActionId = actionId;
+        opts.onAction(actionId);
+      }
     }
 
     const frame = result.frame;

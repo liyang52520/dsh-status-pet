@@ -5,41 +5,64 @@
 // The popup is the pet's ONLY interactive surface — its `onClick` covers the
 // whole panel, not just the 64px sprite, so the padding and the caption pet
 // the pet too.  The panel owns the reaction, feeds it to the one canvas, and
-// echoes it in the caption.
+// tells the DOCK about it as well (`onPet`), so the animation, this caption and
+// the dock's own label all say the same thing at the same moment.
 //
 // It shows THE SAME animation the dock is playing: it pins the dock's derived
 // state and follows the take channel, so the big picture is not a second,
-// independently rolled pet.
+// independently rolled pet.  And it shows the SAME LINE, for the same reason:
+// `props.line` is the dock's string, handed down — there is no second rotation
+// here that could drift from it.
+//
+// Two pieces of text, two jobs (see view/dock/pill.ts):
+//   · the caption is the LINE — the pet's voice, allowed to change on a timer;
+//   · `props.status` is the TRUTH — what the agent is doing.  It labels the
+//     dialog and sits in a visually hidden live region, so a screen reader
+//     hears it once per state change and never hears the rotating line at all.
 
 import { h } from '../../platform/deps.ts';
 import { LIVE_ZOOM } from '../../skin/geometry.ts';
 import { translatorOrFallback } from '../../labels/index.ts';
 import type { Translator } from '../../labels/index.ts';
+import type { SkinSource } from '../pet-canvas.ts';
 import { useReaction } from '../reaction.ts';
 import { PetCanvas } from '../pet-canvas.ts';
+
+/** Module-level so its identity is stable (see pet-canvas.ts). */
+const BEST_SOURCE: SkinSource = { kind: 'best' };
 
 export function DockPopup(props: {
   panelRef: unknown;
   position: Record<string, unknown> | null;
-  title: string;
+  /** The status truth: the dialog's accessible name and the live region. */
+  status: string;
+  /** The dock's current line.  null (an empty pool) falls back to the truth. */
+  line?: string | null;
   state?: string;
   t?: Translator;
+  /** Report a pet up to the dock, which owns the line and the animation. */
+  onPet?: () => void;
 }) {
   const t = translatorOrFallback(props.t);
   const { reaction, react } = useReaction();
 
-  const caption = reaction ? t(reaction) : props.title;
+  const caption = props.line || props.status;
+
+  function onClick() {
+    react('petted');
+    if (props.onPet) props.onPet();
+  }
 
   return h('div', {
     ref: props.panelRef,
     className: 'status-pet-popup',
     role: 'dialog',
-    'aria-label': caption,
+    'aria-label': props.status,
     style: props.position ? props.position : { visibility: 'hidden', left: 0, top: 0 },
-    onClick: () => react('petted'),
+    onClick,
   },
     h(PetCanvas, {
-      source: { kind: 'best' },
+      source: BEST_SOURCE,
       state: props.state,
       follow: true,
       reaction: reaction || undefined,
@@ -47,6 +70,7 @@ export function DockPopup(props: {
       className: 'status-pet-popup-preview',
       t: props.t,
     }),
-    h('div', { className: 'status-pet-popup-title', 'aria-live': 'polite' }, caption)
+    h('div', { className: 'status-pet-popup-title' }, caption),
+    h('div', { className: 'status-pet-sr', role: 'status' }, props.status)
   );
 }

@@ -39,6 +39,10 @@ export interface ResolvedFrame {
 
 /** One action's whole loop, ready to play. */
 export interface ResolvedAnimation {
+  /** The action this was resolved from — what the surface reports to its owner
+   *  so the dock can pick a speech line for the tone she is currently in.
+   *  Optional: a hand-built animation in a test carries no id. */
+  id?: string;
   frames: ResolvedFrame[];
 }
 
@@ -64,6 +68,7 @@ export interface ResolvedSkin {
 function animationOf(action: Action, face: FaceName): ResolvedAnimation {
   const scale = offsetScale(face);
   return {
+    id: action.id,
     frames: action.frames.map((frame) => ({
       ms: frame.ms ?? action.frameMs,
       sprite: spriteFor(faceFor(frame, face)),
