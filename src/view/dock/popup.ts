@@ -12,8 +12,7 @@
 // state and follows the take channel, so the big picture is not a second,
 // independently rolled pet.  And it shows the SAME LINE, for the same reason:
 // `props.line` is the dock's string, handed down — there is no second rotation
-// here that could drift from it.  留白时它还是同一句，只是和 dock 一起隐去
-// （`silent`）：两个面永远同步，安静也是同步的。
+// here that could drift from it.
 //
 // Two pieces of text, two jobs (see view/dock/pill.ts):
 //   · the caption is the LINE — the pet's voice, allowed to change on a timer;
@@ -23,6 +22,7 @@
 
 import { h } from '../../platform/deps.ts';
 import { LIVE_ZOOM } from '../../skin/geometry.ts';
+import { POPUP_LINE_W } from '../../platform/theme.ts';
 import { translatorOrFallback } from '../../labels/index.ts';
 import type { Translator } from '../../labels/index.ts';
 import type { SkinSource } from '../pet-canvas.ts';
@@ -40,8 +40,6 @@ export function DockPopup(props: {
   status: string;
   /** The dock's current line.  null (an empty pool) falls back to the truth. */
   line?: string | null;
-  /** 留白：这一拍她没说话。 有 `line` 时连词一起隐藏（占位不变，面板不跳）。 */
-  silent?: boolean;
   state?: string;
   t?: Translator;
   /** Report a pet up to the dock, which owns the line and the animation. */
@@ -53,8 +51,9 @@ export function DockPopup(props: {
   const caption = props.line || props.status;
   // 字幕也是固定宽度 + 溢出滚动（和 dock 的台词同一套）：面板锚在宠物上，字幕每
   // 一拍长短不一的话，面板会跟着一胀一缩。
-  // 弹窗字幕的框宽是 CSS 里的 `min(200px,60vw)`，所以几何记号给这个表达式本身。
-  const scroll = useLineScroll<HTMLDivElement>(caption, 'min(200px,60vw)');
+  // 框宽是 CSS 里的 `POPUP_LINE_W`（面板宽度由它决定），所以几何记号直接引用同一个
+  // 常量 —— 两边各写一遍就会在改宽度时悄悄错开。
+  const scroll = useLineScroll<HTMLDivElement>(caption, POPUP_LINE_W);
 
   function onClick() {
     react('petted');
@@ -78,7 +77,7 @@ export function DockPopup(props: {
       className: 'status-pet-popup-preview',
       t: props.t,
     }),
-    h('div', { ref: scroll.boxRef, className: 'status-pet-popup-title' + (props.silent && props.line ? ' silent' : '') },
+    h('div', { ref: scroll.boxRef, className: 'status-pet-popup-title' },
       h('span', {
         key: scroll.runKey,
         ref: scroll.runRef,

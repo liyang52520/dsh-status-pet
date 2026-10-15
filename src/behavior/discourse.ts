@@ -12,7 +12,6 @@
 //   E2 停顿耗尽   ① 序列还有下一句 → 必然接上 ② 话题变了 → 说话题 ③ 否则抽状态池
 //   E3 填充词     长时间在跑时，夹一句"嗯…"，**不打断序列记忆**
 //   E4 成串       一串最多 3 拍，短打扮着长停顿，不再像节拍器
-//   E4b 留白      说够一段之后整拍不吭声 —— 话真的稀疏下来，而不是每句拉长
 //   E5 近期窗口   24 条之内不重复（shuffle-bag，而不是掷骰子）
 //   E6 音区 + 心情  动作音区收窄；连败偏 worry，刚开场偏 bright，做久了偏 calm
 
@@ -67,12 +66,6 @@ export interface DiscourseState {
   beat: number;
   /** 上一句是填充词（插话）。 用它防止"嗯…嗯…嗯…"，也不许它顶掉当前池。 */
   interjected: boolean;
-  /**
-   * 这一拍是**留白**：她没说话，只是停着。 `id` 保持上一条（界面靠它占住原来的
-   * 宽度，不能因为有话没话就把布局抖一下），`group` 已经清空 —— 长停顿是段落
-   * 边界，不是"接着上一串的中段说"。
-   */
-  silent: boolean;
   spoken: number;
   /** 同一个状态里已经**推进**了几拍（换状态归零）。 停顿的拉伸系数看它。 */
   still: number;
@@ -100,13 +93,13 @@ export interface DiscourseInput {
   elapsedMs: number;
   reducedMotion?: boolean;
   /** 关掉某一层 —— 测试与"只要状态台词"的场合用。 */
-  layers?: { bridges?: boolean; continuers?: boolean; events?: boolean; topics?: boolean; silence?: boolean };
+  layers?: { bridges?: boolean; continuers?: boolean; events?: boolean; topics?: boolean };
 }
 
 export function emptyDiscourse(): DiscourseState {
   return {
     id: null, source: null, state: null, key: '', remainingMs: 0, recent: [], group: null,
-    beat: 0, interjected: false, silent: false, spoken: 0, still: 0, failStreak: 0, topic: {}, lastTopicSpoken: '', turn: null, targets: [], greeted: false,
+    beat: 0, interjected: false, spoken: 0, still: 0, failStreak: 0, topic: {}, lastTopicSpoken: '', turn: null, targets: [], greeted: false,
   };
 }
 
@@ -255,8 +248,6 @@ function record(
     beat,
     spoken: line ? prev.spoken + 1 : prev.spoken,
     interjected: line ? !!opts.interjected : prev.interjected,
-    // 记录一整句 = 这一拍她在说话，留白到此为止。
-    silent: false,
     lastTopicSpoken: line && opts.topicCommented ? topicKey(prev.topic) : prev.lastTopicSpoken,
   };
 }
@@ -406,29 +397,7 @@ export function stepDiscourse(
   const beat = current.beat + 1;
 
   // ── E4 成串：一串最多 lineMaxBeat 拍；串内短打扮长停顿 ──
-  //    留白之后的第一句必然是一个正常停顿：安静完再"追着说"，读起来像抖了一下。
-  const burst = !current.silent && beat < TUNING.lineMaxBeat && random() < TUNING.lineBurstChance;
-
-  // ── E4b 留白：说够一段之后，她可能整拍**不吭声** ──
-  //    "话太密"的正解不是把每句拉长（那还是"每 N 秒念一句"），而是让话之间真的
-  //    有安静的段落。 四个约束，缺一个都会变成 bug：
-  //      · 成串优先 —— 成串是"一句赶着一句"，正是留白的反面，掷中了就别说停就停；
-  //      · `sameKey` —— 事实签名变了正是值得开口的时刻，留白不许盖过它；
-  //      · `!current.silent` —— 不许连着留白，否则一直低随机就成了"死机"；
-  //      · `current.beat >= 1` —— 得先说过话，才谈得上"停一停"。
-  //    id 不动（界面靠它占住宽度，见 DiscourseState.silent）；group 清空，长停顿
-  //    是段落边界，不是接着上一串的中段说。
-  if (!burst && layers.silence !== false && sameKey && !current.silent && current.beat >= 1
-    && !reduced && random() < TUNING.lineSilenceChance) {
-    return {
-      ...current,
-      silent: true,
-      beat: 0,
-      group: null,
-      interjected: false,
-      remainingMs: between(TUNING.lineSilenceMs[0], TUNING.lineSilenceMs[1], random),
-    };
-  }
+  const burst = beat < TUNING.lineMaxBeat && random() < TUNING.lineBurstChance;
 
   const line = pickFrom(statePool, drawOpts);
   const ms = reduced ? 0 : burst

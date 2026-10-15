@@ -117,7 +117,7 @@ export function DockPet(props: DockSeatProps | null) {
     setUiEvent({ kind: open ? 'popupOpen' : 'popupClose', seq: uiSeqRef.current });
   }, [open]);
 
-  const { id: lineId, silent } = useLine({
+  const lineId = useLine({
     state: face,
     key: lineKey(facts),
     tone,
@@ -184,15 +184,14 @@ export function DockPet(props: DockSeatProps | null) {
   //
   // 盒子是固定尺寸的（`--status-pet-line-w`，用户选的窄/中/宽）：短句留一点余量、
   // 长句在里面滚动，但**宽度永远不变** —— 状态栏不会因为台词长短而左右抽动，也不会
-  // 越变越长去挤旁边的 dock 项。 留白（`silent`）时她还在 DOM 里，只是
-  // `visibility:hidden`，宽度当然也还在。
+  // 越变越长去挤旁边的 dock 项。
   //
   // `key` 是给滚动用的：换一句（或改宽度、或量出来的时长变了）就重挂一次 run，
   // 动画永远从左端、按**这一句最终**的时长跑，不会半路被改目标值。
   const label = line
     ? h('span', {
         ref: scroll.boxRef,
-        className: 'status-pet-line ' + (place === 'left' ? 'left' : 'right') + (silent ? ' silent' : ''),
+        className: 'status-pet-line ' + (place === 'left' ? 'left' : 'right'),
         style: { '--status-pet-line-w': DOCK_LINE_WIDTH_PX[lineWidth] + 'px' },
         'aria-hidden': 'true',
       },
@@ -228,7 +227,6 @@ export function DockPet(props: DockSeatProps | null) {
           state,
           status,
           line,
-          silent,
           t,
           // Petting in the popup pets the DOCK too, so the animation, the
           // caption and the dock label all say the same thing at the same time.

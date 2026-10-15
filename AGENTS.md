@@ -34,7 +34,7 @@ skin's own actions each state plays**.
 | Rendering | Canvas 2D, **integer ratios only** |
 | Sprite model | One action = one animation with TWO faces — `art.avatar` (required) and `art.body` (optional, falls back to avatar at 4×), 1–8 frames. Frame `ms` / `dx` / `dy` are SINGLE SOURCE. A state holds a list of action ids (≤64); empty/absent = follow idle. The dock leads, the popup mirrors. |
 | Text model | TWO kinds of text, deliberately separate — the **status** (22 keys + `toolNamed`, tooltip + `aria-label`, derived from facts, never moved by artwork) and the **line** (~3200 per locale across five layers: state pools with **sequences**, **bridges** per transition, **continuers** (murmurs), **events** (edge reactions) and **topics** (target continuity), rendered with live context variables). The dock OWNS the line and hands the same string to the popup. |
-| Discourse model | `stepDiscourse` is a pure fold: recency window (shuffle-bag), bursts (`beat`), continuers that **do not break sequence memory**, event preemption on fact edges, topic edges that speak once per change, tone choice biased by mood, and **留白** (a whole silent beat). Every rule *used to be* unit-tested against synthetic tables and smoke-tested against the real ones — the suite is gone, so those properties are now editorial. |
+| Discourse model | `stepDiscourse` is a pure fold: recency window (shuffle-bag), bursts (`beat`), continuers that **do not break sequence memory**, event preemption on fact edges, topic edges that speak once per change, and tone choice biased by mood. Every beat speaks: there is no silent beat. Every rule *used to be* unit-tested against synthetic tables and smoke-tested against the real ones — the suite is gone, so those properties are now editorial. |
 | State model | 22 states + 2 reactions, every one backed by a real signal: pending interaction kind (incl. `plan-review`), running tool calls (name→category, raw args, turn/step, start time, concurrency), assistant stream block kind (text/reasoning/tool-call). |
 | Dependencies | `react` + seeded `@deepseek-ai/dsh-client-ui-primitives` (guarded; native `title` fallback), both from the web shell |
 | Build | **tsdown**, two IIFE builds: `src/index.ts` → `client.js` (641 kB, gzip 147 kB), `src/artwork.ts` → `client.artwork.js` (15.6 MB, fetched on demand) |
@@ -222,7 +222,7 @@ Two kinds of text, deliberately not the same thing:
 | Chosen by | `deriveState(facts)` | `stepDiscourse` (V3): state + facts + events + topic + recency + beats + mood + tone |
 | Rendered with | nothing | live variables (`{file}` `{cmd}` `{pat}` `{q}` `{url}` `{secs}` `{n}` `{turn}` `{step}` `{nq}` `{why}` `{name}` …) |
 | Must be accurate | yes — a skin change may never move it | no, it is flavour |
-| Can rotate | no | yes — every 7–9.5 s while things change, stretching to 21–28.5 s once the state has been still for a while, and sometimes a **留白**: a whole silent beat (10–18 s) |
+| Can rotate | no | yes — every 7–9.5 s while things change, stretching to 21–28.5 s once the state has been still for a while (never silent: a beat always shows a line) |
 
 **The dock owns the line.**  `useLine` runs in `pill.ts`; the popup is handed the very
 same string as a prop, so the two cannot drift — there is no second rotation.  Petting
@@ -291,7 +291,6 @@ a single real line:
 | **recency window** (`lineRecentWindow = 24`) | she stops repeating herself; the pool is a shuffle-bag, not dice |
 | **bursts** (`beat`, `lineBurstChance`, `lineBurstMs`) | the rhythm stops being a metronome — a thought can arrive in two quick beats |
 | **continuers** (200 murmurs) | she has something to say between sentences — and a murmur **does not break sequence memory**, so she interrupts herself and then finishes the thought |
-| **留白** (`silent`, `lineSilenceChance`, `lineSilenceMs`) | 说够一段之后她可能**整拍不吭声**（10–18 s）—— 只把停顿拉长永远还是"每 N 秒念一句"，留白才有呼吸 |
 | **越久越稀** (`still`, `lineIdleStretch`, `lineIdleMax`) | 状态一直不换时，停顿逐级 ×1.5、×2、×2.5、封顶 ×3（7–9.5 s → 21–28.5 s）。 开场那种"有活干"的节奏是对的，但一个长工具跑几分钟之后它就只剩噪音；换状态/事实立刻归零重启 |
 | **events** (10 fact edges) | she reacts to what YOU just did (queued a message, approved, answered, failed, opened her) instead of narrating her own state |
 | **topics** (3 pools) | she notices the target changed / came back / that this is the Nth one — spoken **once per change**, never every beat |
@@ -411,7 +410,6 @@ TUNING = { reactToStatus: true, sleepAfterMs: 60_000, stateMinDwellMs: 150,
            lineRecentWindow: 24, lineMaxBeat: 3,
            lineBurstChance: 0.25, lineBurstMs: [1200, 2600],
            lineContinuerChance: 0.22, lineContinuerMs: [2500, 5000],
-           lineSilenceChance: 0.3, lineSilenceMs: [10_000, 18_000],
            lineEventMs: [1500, 3000], topicManyAt: 4 }
 ```
 
@@ -422,18 +420,13 @@ becomes the honest story and the pet switches from the work (`shell`) to the wai
 The V3 knobs above shape the *rhythm of the conversation*: how long before a line may
 repeat, how long a burst may run, how often a murmur slips in, how fast a reaction lands.
 
-`lineSilenceChance` / `lineSilenceMs` are the **留白**: on ~30% of the ordinary (non-burst)
-beats she says nothing for 10–18 s.  Two rules keep it from becoming a bug — a silence is
-never followed by another silence (so the pause is bounded), and a state or facts-signature
-change always interrupts it.
-
 `lineIdleStretch` / `lineIdleMax` are the **lean-back**: `still` counts the beats advanced
 inside ONE state, and the normal dwell is multiplied by `1 + lineIdleStretch × still`,
 capped at `lineIdleMax`.  A state or fact change resets it, so the 7–9.5 s cadence is what
 you get whenever something is actually happening; a long tool that just sits there decays
 to 21–28.5 s.  Measured on the real tables, 60 virtual minutes with one long tool running
-(no state change): **6.9 → 2.9 lines/min**, while the 留白 beats stay 15–25% of the wall
-clock.
+(no state change): **6.9 → 2.9 lines/min**.  The lean-back is the ONLY thing that thins the
+talk out — every beat that lands still says a line; there is no silent beat.
 
 ---
 
@@ -534,7 +527,6 @@ that used to be pinned by `lines.test.ts` / `discourse.test.ts` / `line-scroll.t
     stretch out (×1.5, ×2, … up to ×3 = 21–28.5 s) instead of tapping along at the same
     cadence for an hour.  While a long tool runs, a short murmur ("嗯…") should slip in
     between real sentences — and the thought should still finish afterwards.
-15. **留白**: now and then she simply stops talking for 10–18 s — the label (and the popup
-    caption, if open) goes blank but **nothing moves**: the pill must not shrink and the
-    dock's neighbours must not shift.  She never goes quiet twice in a row, and queuing a
-    message / a state change makes her speak immediately, even mid-silence.
+15. **No blank beat**: leave one state running for a few minutes — the label (and the popup
+    caption, if open) never goes blank and never shrinks; every beat that lands is a real
+    line, and the dock's neighbours never shift.

@@ -7,6 +7,13 @@
 // accents are wrapped in `color-mix(…, transparent)` so a renamed token degrades
 // to an untinted pill instead of breaking the render.
 
+/** 弹窗字幕的框宽 —— 和 `.status-pet-popup-title` 的 CSS **同一个值**，所以这里
+ *  导出它：popup 的滚动 hook 要拿它当"几何记号"（框宽变了才重量），两边写两遍
+ *  就会悄悄错开。 悬浮层不跟 dock 的窄/中/宽走，也不跟台词内容走（内容一变宽，
+ *  锚在宠物上的面板就跟着一胀一缩）。 它同时**决定面板有多宽**：预览是 80px 的
+ *  身体，字幕框是面板里最宽的东西，所以框收窄 = 面板收窄，两侧的空白也跟着收。 */
+export const POPUP_LINE_W = 'min(120px,50vw)';
+
 export const THEME = [
   '.status-pet-pill{box-sizing:border-box;border-radius:999px;border:none;background:transparent;color:var(--dsw-alias-label-tertiary);display:inline-flex;align-items:center;justify-content:center;padding:1px 7px;cursor:pointer;line-height:0;flex:none;transition:background .15s ease;}',
   '.status-pet-pill:hover{background:var(--dsw-alias-interactive-bg-hover);}',
@@ -34,7 +41,7 @@ export const THEME = [
   // 一句**只滚一趟**：放完停在末尾（`forwards`），而末尾是贴着右缘的（位移 = 溢出量）
   // ——右边不会剩下一条空白。 循环播放等于把同一句话一遍遍重放
   // ——台词还没换它就一直重头来，看的人烦。 换台词时 `key={line}` 重挂 run，自然又
-  // 从左边开始；留白（同一句）和宽度改动都不会让它再动一次。
+  // 从左边开始；宽度改动也不会让它再动一次。
   '.status-pet-line-run.scrolling{max-width:none;overflow:visible;animation-name:statusPetScroll;animation-duration:4000ms;animation-timing-function:linear;animation-iteration-count:1;animation-fill-mode:forwards;}',
   // 12% / 88% 与 line-scroll.ts 的 `SCROLL.holdPct` 配对：两端各停一拍，中间匀速走完。
   //
@@ -44,19 +51,19 @@ export const THEME = [
   // 算，量错、换字体、动画途中重排都不可能让它多滚或少滚，更不会在动画结束后把文字
   // 再推一下（旧写法把位移放进 CSS 变量，一改就等于改动画目标值）。
   '@keyframes statusPetScroll{0%,12%{transform:translateX(0)}88%,100%{transform:translateX(min(0px,calc(var(--status-pet-line-w) - 100%)))}}',
-  // 留白：她这一拍不说话。 只隐藏、不卸载 —— 盒子还在（宽度也还在），dock 的其余
-  // 部分不会因为"她说不说话"而整体左右跳。（popup 的同一句同理。）
-  '.status-pet-line.silent,.status-pet-popup-title.silent{visibility:hidden;}',
   // Visually hidden, still announced: the popup's live region.
   '.status-pet-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;}',
-  '.status-pet-popup{position:fixed;z-index:70;box-sizing:border-box;cursor:pointer;user-select:none;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);box-shadow:var(--dsw-elevation-panel);padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px;}',
+  '.status-pet-popup{position:fixed;z-index:70;box-sizing:border-box;cursor:pointer;user-select:none;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);border:.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);box-shadow:var(--dsw-elevation-panel);padding:9px 9px 8px;display:flex;flex-direction:column;align-items:center;gap:5px;}',
   '.status-pet-popup-preview{border:none;background:transparent;cursor:pointer;line-height:0;border-radius:var(--dsw-radius-md);padding:4px;font-family:inherit;}',
   '.status-pet-popup-preview:hover{background:var(--dsw-alias-interactive-bg-hover);}',
   '.status-pet-popup-preview:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px;}',
   // 弹窗字幕：和 dock 一样是固定宽度 —— 台词在弹窗里也每 7~9 秒换一次，宽度跟
-  // 着内容走的话，锚在宠物上的面板会跟着一胀一缩。 面板是悬浮层、地方够，所以它
-  // 不跟 dock 的三档宽度走。 短句居中（`margin:0 auto`），长句解掉钳制后从左滚。
-  '.status-pet-popup-title{--status-pet-line-w:min(200px,60vw);box-sizing:border-box;width:var(--status-pet-line-w);overflow:hidden;font-size:12px;line-height:18px;white-space:nowrap;color:var(--dsw-alias-label-secondary);}',
+  // 着内容走的话，锚在宠物上的面板会跟着一胀一缩。 悬浮层不跟 dock 的窄/中/宽走，
+  // 但它**是面板里最宽的东西**：预览只有 80px 的身体，字幕框却曾经是 200px，于是
+  // 面板比它展示的宠物宽出一大截，左右各空 60 多像素。 所以框收窄到 `POPUP_LINE_W`
+  // ——面板跟着收，宠物在面板里的占比就上来了。 短句居中（`margin:0 auto`），长句
+  // 解掉钳制后从左滚（`line-height` 与 dock 的 16px 一致）。
+  '.status-pet-popup-title{--status-pet-line-w:' + POPUP_LINE_W + ';box-sizing:border-box;width:var(--status-pet-line-w);overflow:hidden;font-size:12px;line-height:16px;white-space:nowrap;color:var(--dsw-alias-label-secondary);}',
   '.status-pet-popup-title .status-pet-line-run{margin:0 auto;}',
   // 「等你批准」的呼吸：动画只碰 `opacity`，一行合成就够 —— 它挂在 `::after` 上，
   // 所以主线程每帧什么都不用做。 以前直接动 `background`，而背景色**不在合成器**
