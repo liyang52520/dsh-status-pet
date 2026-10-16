@@ -309,9 +309,9 @@ a single real line:
 |---|---|
 | **recency window** (`lineRecentWindow = 24`) | she stops repeating herself; the pool is a shuffle-bag, not dice.  When the tone/mood subset is SMALLER than the window the bag cannot cover it, so the engine hands back the least-recently-used lines — the repeat gap becomes the subset size instead of collapsing to "exclude the last 4" |
 | **bursts** (`beat`, `lineBurstChance`, `lineBurstMs`) | the rhythm stops being a metronome — a thought can arrive in two quick beats |
-| **continuers** (200 murmurs) | she has something to say between sentences — and a murmur **does not break sequence memory**, so she interrupts herself and then finishes the thought |
+| **continuers** (200 murmurs) | she has something to say between sentences — and a murmur **does not break sequence memory**, so she interrupts herself and then finishes the thought.  Its `source` deliberately stays on the thing being talked about, so `LineSource` has no `continuer` variant at all |
 | **越久越稀** (`still`, `lineIdleStretch`, `lineIdleMax`) | 状态一直不换时，停顿逐级 ×1.5、×2、×2.5、封顶 ×3（7–9.5 s → 21–28.5 s）。 开场那种"有活干"的节奏是对的，但一个长工具跑几分钟之后它就只剩噪音；换状态/事实立刻归零重启 |
-| **events** (10 fact edges) | she reacts to what YOU just did (queued a message, approved, answered, failed, opened her) instead of narrating her own state |
+| **events** (10 fact edges) | she reacts to what YOU just did (queued a message, approved, answered, failed, opened her) instead of narrating her own state; each `failed` occurrence bumps `failStreak`, and `cleared`/`retry` reset it |
 | **topics** (3 pools) | she notices the target changed / came back / that this is the Nth one — spoken **once per change**, never every beat |
 | **mood** (`failStreak`, `spoken`) | a losing streak biases worry, a fresh start biases bright, a long clean run biases calm |
 
@@ -493,7 +493,8 @@ talk out — every beat that lands still says a line; there is no silent beat.
 5. Give it artwork: assign actions in `src/skin/catalog.ts`'s state table (every action
    must belong to at least one state, and every state to at least one action —
    `test/artwork.test.ts` enforces both); tag any new action in `src/skin/tones.ts`; add the
-   `settings.hint.<state>` key and the status label to both locales.
+   `settings.hint.<state>` key and the status label to both locales.  (`library.assign`
+   refuses an unknown state name, so a typo cannot mint a phantom state row.)
 6. `pnpm test` (the copy contract, the truth table and the tone coverage all re-check), then
    `pnpm build` and exercise it by hand.
 
