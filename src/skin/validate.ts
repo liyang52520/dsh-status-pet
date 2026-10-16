@@ -7,11 +7,11 @@
 // actually names an action — so a botched edit fails the suite instead of
 // failing in the popup.
 //
-// It has NO runtime caller: nothing validates on a hot path, because nothing
-// untrusted reaches the renderer (the assignment diff is sanitized where it is
-// applied).  `pnpm test` used to be the only caller, but the suite is gone — so this
-// module currently has NO caller at all.  Call `validateArtwork` by hand (or from a
-// throwaway script) after an edit to `catalog.ts`; nothing does it for you.
+// It has no runtime caller on purpose: nothing validates on a hot path, because
+// nothing untrusted reaches the renderer (the assignment diff is sanitized where it
+// is applied).  Its caller is the test suite — `test/artwork.test.ts` runs
+// `validateArtwork` over every built-in, so a botched hand-edit to `catalog.ts`
+// fails `pnpm test` instead of failing in the popup.
 //
 // The nibble table is imported from `pixels.ts` so the charset and the colour
 // check are one pass, never two.

@@ -53,6 +53,11 @@ import { DockPopup } from './popup.ts';
  *  re-binds the surface and restarts the animation (see pet-canvas.ts). */
 const ACTIVE_SOURCE: SkinSource = { kind: 'active' };
 
+/** 弹窗 primitives 缺席时的替身。 有了它们，两个 hook 就**无条件**被调用 ——
+ *  `POPUP_OK` 在 init 之后就冻住了，但"条件式 hook 调用"本身仍然是规则违反。 */
+const NO_ANCHORED_POSITION = (): Record<string, unknown> | null => null;
+const NO_DISMISS = (): void => {};
+
 /** 「状态 + 事实」签名：它一变就立即换一条台词。 刻意**不含** `{secs}` ——
  *  时间流逝不该把话头打断，秒数会在下一次重抽时刷新。 */
 function lineKey(facts: PetFacts): string {
@@ -103,10 +108,15 @@ export function DockPet(props: DockSeatProps | null) {
   // 词条里的 `{file}` `{cmd}` `{secs}` … 在这里换成这次会话真实的值；同一批变量也
   // 告诉她"你现在在哪个目标上"（话题连续），以及这是这一轮的第几步。
   const vars = varsForFacts(facts, toolName);
-  const topic = { file: vars.file, cmd: vars.cmd, pat: vars.pat, q: vars.q };
+  // 内容签名当依赖：调用方每次渲染都会新建对象，引用当依赖会让引擎每渲染重跑一次。
+  const topic = React.useMemo(
+    () => ({ file: vars.file, cmd: vars.cmd, pat: vars.pat, q: vars.q }),
+    [vars.file, vars.cmd, vars.pat, vars.q],
+  );
   const turn = facts.tools[0] ? facts.tools[0].turn : undefined;
 
-  // 界面边沿：你点开/关上了她。 事实边沿由 seat 检测，这里只补 UI 这一半。
+  // 界面边沿：你点开/关上了她。 事实边沿由 seat 检测，这里只补 UI 这一半 ——
+  // 它带**自己的序号**，否则它会把上一条事实边沿重新当成新事件喂给引擎。
   const [uiEvent, setUiEvent] = React.useState<{ kind: string; seq: number } | null>(null);
   const uiSeqRef = React.useRef(0);
   const seenOpenRef = React.useRef(open);
@@ -123,11 +133,11 @@ export function DockPet(props: DockSeatProps | null) {
     tone,
     topic,
     turn,
-    events: [...factEvents, ...(uiEvent ? [uiEvent.kind] : [])],
-    // 序号里同时含"事实边沿"和"界面边沿"：只有真的发生了新的边沿才当成新事件。
-    eventSeq: `${eventSeq}|${uiEvent ? uiEvent.seq : 0}`,
+    events: factEvents,
+    eventSeq,
+    uiEvents: uiEvent ? [uiEvent.kind] : [],
+    uiSeq: uiEvent ? uiEvent.seq : undefined,
     running: facts.running,
-    errored: facts.errored,
     active: place !== 'off',
   });
   const line = lineId ? renderLine(t(lineId), vars) : null;
@@ -136,16 +146,25 @@ export function DockPet(props: DockSeatProps | null) {
   const scroll = useLineScroll<HTMLSpanElement>(line, DOCK_LINE_WIDTH_PX[lineWidth]);
 
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
-  // Anchored popup mechanics, exactly as the host meter uses them.
+  const buttonRef = React.useRef<HTMLButtonElement | null>(null);
+  // Anchored popup mechanics, exactly as the host meter uses them.  Both hooks are
+  // called on every render; only their input differs when the primitives are missing.
   const rootRef = React.useRef<Element | null>(null);
   const panelRef = React.useRef<HTMLElement | null>(null);
-  const position = POPUP_OK && useAnchoredPosition
-    ? useAnchoredPosition({ open, anchorRef: rootRef, panelRef, side: 'top', gap: 8, margin: 12 })
+  const anchoredPosition = useAnchoredPosition || NO_ANCHORED_POSITION;
+  const dismissOnOutside = useDismissOnOutsidePointer || NO_DISMISS;
+  const position = POPUP_OK
+    ? anchoredPosition({ open, anchorRef: rootRef, panelRef, side: 'top', gap: 8, margin: 12 })
     : null;
-  if (POPUP_OK && useDismissOnOutsidePointer) useDismissOnOutsidePointer(rootRef, open, setOpen, panelRef);
+  dismissOnOutside(rootRef, open, setOpen, panelRef);
   React.useEffect(() => {
     if (!POPUP_OK || !open) return;
-    const onKeyDown = (e: { key: string }) => { if (e.key === 'Escape') setOpen(false); };
+    const onKeyDown = (e: { key: string }) => {
+      if (e.key !== 'Escape') return;
+      setOpen(false);
+      // Escape离场：焦点还给触发它的那颗按钮，键盘用户不会掉到页面顶部。
+      if (buttonRef.current) buttonRef.current.focus();
+    };
     document.addEventListener('keydown', onKeyDown as unknown as EventListener);
     return () => document.removeEventListener('keydown', onKeyDown as unknown as EventListener);
   }, [open]);
@@ -156,16 +175,22 @@ export function DockPet(props: DockSeatProps | null) {
   }
   function onWake() { if (state === 'sleep') react('woken'); }
 
-  // ① the status: the tooltip, the accessible name, and the popup's live region.
-  //     Only the fallback category needs the tool's own name — every named
-  //     category has a status label of its own ("在读文件…"), which is the more
-  //     honest thing to say.
+  // ① the status: the tooltip, the accessible name, and — through the one live
+  //     region below — the announcement.  Only the fallback category needs the
+  //     tool's own name: every named category has a status label of its own
+  //     ("在读文件…"), which is the more honest thing to say.
+  //
+  //     The live region lives HERE, not in the popup: the dock is always mounted,
+  //     so a state change is announced once whether or not the popup is open (it
+  //     used to be announced only while the popup happened to be open).  The
+  //     rotating LINE never enters it.
   const named = face === 'tool' && toolName;
   const status = named ? t('toolNamed', { name: toolName }) : t(face);
   const pill = (STATES[state] && STATES[state].pill) || '';
 
   const buttonProps: Record<string, unknown> = {
     type: 'button',
+    ref: buttonRef,
     className: 'status-pet-pill' + pill,
     'aria-label': status,
     onClick,
@@ -214,7 +239,10 @@ export function DockPet(props: DockSeatProps | null) {
   const button = h('button', buttonProps, ...(place === 'left' ? [label, pet] : [pet, label]));
 
   const anchor = h('span', { ref: rootRef, className: 'status-pet-anchor' },
-    Tooltip ? h(Tooltip, { label: status, side: 'top', delayMs: 0, disabled: open }, button) : button
+    Tooltip ? h(Tooltip, { label: status, side: 'top', delayMs: 0, disabled: open }, button) : button,
+    // The truth, announced once per state change.  Visually hidden, always mounted,
+    // and separate from the rotating line (a timer-driven line must never be live).
+    h('span', { className: 'status-pet-sr', role: 'status' }, status)
   );
 
   return h(React.Fragment, null,

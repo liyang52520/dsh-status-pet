@@ -10,7 +10,7 @@ the click popup shows the very same line.  V2 gave her **22 states** and **seque
 engine** — a recency window so she stops repeating herself, bursts and murmurs so the
 rhythm is not a metronome, **event reactions** to what YOU just did, **topic continuity**
 (same file / new file / the Nth one), and a mood that shifts with a losing or winning
-streak.  ~3200 lines per locale.  Click it and the **big picture pops up**:
+streak.  ~3,200 lines per locale.  Click it and the **big picture pops up**:
 an anchored, animated, pettable panel.  The Settings tab swaps **skins**, shows her
 whole **action library** one animation at a time, and lets you change **which of a
 skin's own actions each state plays**.
@@ -33,11 +33,11 @@ skin's own actions each state plays**.
 | Mount points | `conversation.composer.dock` (id `status-pet`, order **−1000**, far left); `settings.section` (order 30, after agent-presets) |
 | Rendering | Canvas 2D, **integer ratios only** |
 | Sprite model | One action = one animation with TWO faces — `art.avatar` (required) and `art.body` (optional, falls back to avatar at 4×), 1–8 frames. Frame `ms` / `dx` / `dy` are SINGLE SOURCE. A state holds a list of action ids (≤64); empty/absent = follow idle. The dock leads, the popup mirrors. |
-| Text model | TWO kinds of text, deliberately separate — the **status** (22 keys + `toolNamed`, tooltip + `aria-label`, derived from facts, never moved by artwork) and the **line** (~3200 per locale across five layers: state pools with **sequences**, **bridges** per transition, **continuers** (murmurs), **events** (edge reactions) and **topics** (target continuity), rendered with live context variables). The dock OWNS the line and hands the same string to the popup. |
-| Discourse model | `stepDiscourse` is a pure fold: recency window (shuffle-bag), bursts (`beat`), continuers that **do not break sequence memory**, event preemption on fact edges, topic edges that speak once per change, and tone choice biased by mood. Every beat speaks: there is no silent beat. Every rule *used to be* unit-tested against synthetic tables and smoke-tested against the real ones — the suite is gone, so those properties are now editorial. |
+| Text model | TWO kinds of text, deliberately separate — the **status** (22 keys + `toolNamed`, tooltip + `aria-label`, derived from facts, never moved by artwork) and the **line** (~3,200 per locale across five layers: state pools with **sequences**, **bridges** per transition, **continuers** (murmurs), **events** (edge reactions) and **topics** (target continuity), rendered with live context variables). The dock OWNS the line and hands the same string to the popup. |
+| Discourse model | `stepDiscourse` is a pure fold: recency window (shuffle-bag), bursts (`beat`), continuers that **do not break sequence memory**, event preemption on fact edges, topic edges that speak once per change, and tone choice biased by mood. Every beat speaks: there is no silent beat. Every rule is unit-tested against synthetic tables (`test/discourse.test.ts`) and the real tables are pinned too (`test/lines.test.ts`, `test/pools.test.ts`). |
 | State model | 22 states + 2 reactions, every one backed by a real signal: pending interaction kind (incl. `plan-review`), running tool calls (name→category, raw args, turn/step, start time, concurrency), assistant stream block kind (text/reasoning/tool-call). |
 | Dependencies | `react` + seeded `@deepseek-ai/dsh-client-ui-primitives` (guarded; native `title` fallback), both from the web shell |
-| Build | **tsdown**, two IIFE builds: `src/index.ts` → `client.js` (641 kB, gzip 147 kB), `src/artwork.ts` → `client.artwork.js` (15.6 MB, fetched on demand) |
+| Build | **tsdown**, two IIFE builds: `src/index.ts` → `client.js` (648 kB, gzip ≈150 kB), `src/artwork.ts` → `client.artwork.js` (15.6 MB, fetched on demand) |
 
 ---
 
@@ -50,18 +50,18 @@ src/
     tuning.ts          rhythm knobs (artwork AND text)
     facts.ts           PetFacts + deriveState (state machine)
     vocabulary.ts      STATES / REACTIONS / STATE_NAMES / TONES
-    lines.ts           the pool layer: LINE_POOLS, poolFor, bridgeFor, candidates
     discourse.ts       the speech ENGINE (V3): recent window, beats, continuers,
                        events, topics, mood — pure, tables and random injectable
     line-pools.ts      the pool STRUCTURE: state lines + bridges + continuers +
                        events + topics (GENERATED)
     tool-catalog.ts    wire tool name → work category (shell/read/search/write/web/agent/plan/deliver)
-    context.ts         argsRaw → line variables; varsForFacts; renderLine (the `{var}` renderer)
+    context.ts         argsRaw → line variables; varsForFacts; renderLine (the `{var}`
+                       renderer, including the missing-variable fallbacks)
   labels/                              i18n (shared across layers)
     en.ts  zh.ts       the two shipped locales + the settings copy
     index.ts           NS + LABELS (state copy + ~3200 lines) + translatorOrFallback
-    lines/zh.ts        every line entry, zh (GENERATED)
-    lines/en.ts        every line entry, en (GENERATED)
+    lines/zh.ts        every line entry, zh — 3,192 (GENERATED header, but it IS the source)
+    lines/en.ts        every line entry, en — 3,192
   skin/                                artwork model + wardrobe
     geometry.ts        FACES (avatar 32 / body 128) + headroom + LIVE_ZOOM
     pixels.ts          two-char pixel codec (NIBBLE, parse, serialize, blanks)
@@ -77,7 +77,8 @@ src/
     resolve.ts         Artwork → ResolvedSkin (pure, identity-memoized)
     session.ts         LIVE wardrobe: activeSkin, bestSkin, skinFor,
                        chooseSkin, saveAssignments, installCatalog, onSkinChange
-    validate.ts        invariant check — DEAD CODE now (nothing calls it; the suite is gone)
+    validate.ts        invariant check — no runtime caller; `test/artwork.test.ts`
+                       runs it over every built-in
     catalog.ts         built-in artwork (15 MB, frozen, hand-edited)
   player/                              pure playback policy
     rotation.ts        which animation, how long it is held
@@ -104,21 +105,32 @@ src/
                        action-panel.ts, action-picker.ts,
                        action-thumb.ts, assignment-list.ts, board.ts, filmstrip.ts,
                        frame-canvas.ts, field.ts, confirm.ts
+test/                                    the gate (node --test, no browser, no deps)
+  labels.test.ts     zh/en symmetry, pool ↔ dictionary bijection, settings keys
+  lines.test.ts      every line reads with every variable missing; the var renderer
+  pools.test.ts      sequence integrity, bridge keys, event/topic coverage
+  discourse.test.ts  the engine: blank beats, window, LRU fallback, sequences, edges
+  facts.test.ts      the 22-state truth table, priority, host shape guards
+  artwork.test.ts    validateArtwork over the catalog, tones, resolution, registry
+  skin.test.ts       pixel codec, 4× face fallback, diff sanitizer, library, storage
+  player.test.ts     the pure tick reducer and the rotation policy
+  scroll.test.ts     planScroll + the spec-equals-CSS pin
 ```
 
-`test/`, `bench/` and `docs/` were **deleted deliberately** — they had no runtime effect
-(only `src/` is built) and they were the copy pipeline plus its safety net.  Consequences,
-so nobody is surprised later:
+`bench/` and `docs/` were **deleted deliberately** — they had no runtime effect (only
+`src/` is built) and they were the copy pipeline.  Three consequences, so nobody is
+surprised later:
 
-- **There is no test suite.**  `pnpm test` is gone; verify by building and exercising the
-  pet by hand (see the manual checklist at the end).
-- **The copy is no longer generated.**  `src/behavior/line-pools.ts`,
-  `src/labels/lines/{zh,en}.ts` and `src/skin/tones.ts` still carry a `GENERATED … Do not
-  hand-edit` header, but that generator is gone — those files are now the ONLY source, so
-  edit them directly (keep the zh/en key sets identical).
-- **The zh/en copy contracts, the SPEC baseline, the whole-pool gate and the browser perf
-  lab are gone too.**  A snapshot of the untracked sources removed with them lives in
-  `.deleted-sources-backup.tar.gz`; the tracked ones are recoverable from git history.
+- **The generator is gone.**  `src/behavior/line-pools.ts`, `src/labels/lines/{zh,en}.ts`
+  and `src/skin/tones.ts` still carry a `GENERATED … Do not hand-edit` header, but that
+  generator does not exist — those files ARE the source, so edit them directly.  The
+  zh/en key sets must stay identical, and `test/labels.test.ts` fails if they drift.
+- **The contract is enforced by the suite, not by the pipeline.**  `pnpm test` checks the
+  zh/en symmetry, the pool ↔ dictionary bijection, sequence integrity, action-tone
+  coverage and "every line still reads with every variable missing".
+- **The SPEC baseline and the browser perf lab are gone** with `docs/`/`bench/`; the
+  tracked sources are recoverable from git history, the untracked ones are simply gone
+  (there is no `.deleted-sources-backup.tar.gz` — it was never committed).
 
 ---
 
@@ -133,12 +145,12 @@ behavior  ←  skin  ←  player  ←  platform  ←  view  ←  entry
 - **behavior / labels / skin / player** — pure, no DOM, importable in Node.
 - **platform** — the only layer that touches `window`, `document`, `requestAnimationFrame`, `canvas`.  `deps.ts` is the sole injection point.
 - **view** — React components.  Stateless fragments are plain functions (e.g. `field.ts`), not components, so the rendered element tree stays flat.
-- **entry** — `index.ts` registers with the module loader; `plugin.ts` assembles `skinTools` + slot registrations.
+- **entry** — `index.ts` registers with the module loader; `plugin.ts` assembles `skinTools` + slot registrations.  `skinTools` is deliberately small and honest — names, geometry, storage, the live wardrobe and the two UI components, with no aliases (`GRIDS`, `cellFor`), no no-op stubs and no `PixelEditor: undefined` carried "for the tests" (the suite imports those modules directly).
 
 ### How it loads
 
 1. The bundle loader fetches `client.js`.  The factory receives `require`, seeds `platform/deps.ts`, requests `./client.artwork.js` in the background, and returns `{ inject: ['slots','locale'], skinTools, apply }`.
-2. Until the artwork chunk lands, the registry is empty and the pet draws a blank canvas.
+2. Until the artwork chunk lands, the registry is empty and the pet draws a blank canvas.  The loader retries the chunk once and then warns on the console — a missing chunk degrades to a blank pet, never to a `.catch(() => {})` silence.
 3. When the chunk lands, `session.installCatalog` swaps the registry, re-resolves ACTIVE, and broadcasts — every canvas picks pixels up on the next rAF frame.
 
 ### Status sources
@@ -185,7 +197,7 @@ Artwork   = { palette: string[], actions: Action[], states: StateTable }
 
 ### The catalog
 
-The built-in artwork is **baked and frozen**.  It was generated once from source gif material (now deleted), then paired into the canonical shape by a one-shot codemod (also deleted).  `src/skin/catalog.ts` is the source of truth, hand-edited; `validate.ts` used to re-check it (it is dead code now — call it yourself if you want the invariants checked).  Every action carries `name` (human label) and `origin` (provenance string — the source gif it was baked from).
+The built-in artwork is **baked and frozen**.  It was generated once from source gif material (now deleted), then paired into the canonical shape by a one-shot codemod (also deleted).  `src/skin/catalog.ts` is the source of truth, hand-edited; `test/artwork.test.ts` runs `skin/validate.ts` over every built-in, so a botched edit fails `pnpm test` instead of failing in the popup.  Every action carries `name` (human label) and `origin` (provenance string — the source gif it was baked from).
 
 ### Palette
 
@@ -203,7 +215,7 @@ Up to 255 colours + `transparent` at slot 0.  Two-character per pixel: `..` = tr
 动作   the whole library, one action at a time   (only LOOKS)
 ```
 
-**皮肤.**  `SkinCards` renders one card per `BUILTIN_SKINS`.  Selecting applies instantly: `chooseSkin(name)` persists and re-resolves ACTIVE.
+**皮肤.**  `SkinCards` renders one card per `BUILTIN_SKINS`.  Selecting applies instantly: `chooseSkin(name)` persists and re-resolves ACTIVE.  The Workshop re-reads the document on every `onSkinChange`, not only when the name moves: the artwork chunk landing keeps the same skin NAME, so a `setSkin(equal)` would bail out and leave the panel empty — `page.ts` bumps a revision to make that change visible, and `assignment-list.ts` re-reads the same way.
 
 **状态.**  Left column: 24 one-line rows — 22 states then the 2 reactions (name + read-out).  Right column: `StateAssignments` — a compact header (80 px live picture at the body face) that plays the chosen state, or the hovered row's action while a row is hovered (`headerSource`), then the library as a checkbox per action, with search + 全选 + 清空.  Display order is two groups (ticked first, then the rest), each in library order; stored order is pure library order so the rotation never shifts.  **One knob, `--status-pet-scroll-h`, on `.status-pet-columns`** (44 vh / 360 px; 38 vh / 300 px once the two columns stack): the right column's library reads it as its `max-height`, the left column's frame reads it as its **floor** (`min-height`) — 24 rows are far taller than the page wants to be, and two separately-written caps drift apart.  The left column's FRAME is a separate element, `align-self:stretch`, so the vertical divider runs the whole column: it is a frame, not the scroller.  The frame's scroller (`.status-pet-state-scroll`) is **absolutely positioned to the frame's edges** (`inset:0 14px 0 0`): that keeps the 24 rows out of the frame's intrinsic height (the row height comes from the right column, so the page never grows) and makes the scroller **fill the column** — its bottom edge IS the library's bottom edge, so no blank band is left under it.  It is deliberately taller than the library: the library has the avatar header above it, the state list has nothing.  Once the two columns stack, the frame is content-sized again and the scroller returns to normal flow with the knob as its `max-height`.
 
@@ -217,8 +229,8 @@ Two kinds of text, deliberately not the same thing:
 
 | | **status** (truth) | **line** (voice) |
 |---|---|---|
-| Where | tooltip, `aria-label`, the popup's hidden live region | the dock's label + the popup's caption |
-| Source | `t(state)` / `t('toolNamed')` — 22 keys + 1 | **five layers** per locale: state pools (2105), bridges (533), continuers (200), events (240), topics (120) |
+| Where | tooltip, `aria-label`, the dock's hidden live region | the dock's label + the popup's caption |
+| Source | `t(state)` / `t('toolNamed')` — 22 keys + 1 | **five layers** per locale: state pools (2105), bridges (527), continuers (200), events (240), topics (120) |
 | Chosen by | `deriveState(facts)` | `stepDiscourse` (V3): state + facts + events + topic + recency + beats + mood + tone |
 | Rendered with | nothing | live variables (`{file}` `{cmd}` `{pat}` `{q}` `{url}` `{secs}` `{n}` `{turn}` `{step}` `{nq}` `{why}` `{name}` …) |
 | Must be accurate | yes — a skin change may never move it | no, it is flavour |
@@ -259,9 +271,13 @@ room and scrolls more.
 
 **Where the context comes from.**  `seat.ts` folds DSH's real signals into `PetFacts`
 (§Status sources above); `deriveState` names the WORK; `context.ts` turns a running
-call's `argsRaw` into variables; `renderLine` substitutes them and **cleans up after a
-missing one** — every sentence must still stand when every variable is empty (that was a
-test assertion on every line × 2 locales; nothing enforces it now).
+call's `argsRaw` into variables; `renderLine` substitutes them and, when one is missing,
+**fills a generic noun in its place** (`VARS_FALLBACK`, zh or en chosen by whether the
+TEMPLATE contains Han characters — the component never learns the host's locale).  Every
+sentence must still stand when every variable is empty, and `test/lines.test.ts` asserts it
+for all ~3,200 × 2 lines.  Shell commands and URLs are also run through `redactSecrets`,
+which blanks the value of `--token=x` / `Authorization: Bearer x` / `API_KEY=x` — clipping
+length is NOT a privacy measure and the code no longer pretends it is.
 
 **Pools are state-bound; actions only narrow.**  Never bind a line to an ACTION: one
 action can be ticked for several states, and `catalog.ts` action names are hard-coded
@@ -276,8 +292,11 @@ flap with the animation.
   expires and the current line has a next one, the engine continues it — no dice roll.
   A fresh draw only ever starts at a standalone line or a sequence's first line.
 - A **bridge** is a pool keyed `from>to`: on a state change the pet speaks the bridge
-  (if one is written for that transition) *before* the new state's own line.  ~100
-  transitions, 533 bridges — and a bridge may itself be a 2-line sequence.
+  (if one is written for that transition) *before* the new state's own line.  101
+  transitions, 527 bridges — and a bridge may itself be a 2-line sequence.  (A `from>to`
+  key with `from === to` is unreachable: the engine only consults a bridge when the state
+  CHANGED.  Two such self-bridges were deleted, and `test/pools.test.ts` now fails if one
+  comes back.)
 
 ### The discourse engine (V3)
 
@@ -288,7 +307,7 @@ a single real line:
 
 | rule | what it fixes |
 |---|---|
-| **recency window** (`lineRecentWindow = 24`) | she stops repeating herself; the pool is a shuffle-bag, not dice |
+| **recency window** (`lineRecentWindow = 24`) | she stops repeating herself; the pool is a shuffle-bag, not dice.  When the tone/mood subset is SMALLER than the window the bag cannot cover it, so the engine hands back the least-recently-used lines — the repeat gap becomes the subset size instead of collapsing to "exclude the last 4" |
 | **bursts** (`beat`, `lineBurstChance`, `lineBurstMs`) | the rhythm stops being a metronome — a thought can arrive in two quick beats |
 | **continuers** (200 murmurs) | she has something to say between sentences — and a murmur **does not break sequence memory**, so she interrupts herself and then finishes the thought |
 | **越久越稀** (`still`, `lineIdleStretch`, `lineIdleMax`) | 状态一直不换时，停顿逐级 ×1.5、×2、×2.5、封顶 ×3（7–9.5 s → 21–28.5 s）。 开场那种"有活干"的节奏是对的，但一个长工具跑几分钟之后它就只剩噪音；换状态/事实立刻归零重启 |
@@ -300,14 +319,22 @@ Order matters and is asserted: **topic edge → continuer → sequence continuat
 pool**.  A changed subject makes the old sentence stale; an interjection must not lose the
 thought; only then do we continue or start fresh.
 
-**Fact edges** are computed in `seat.ts` (`detectEdges`, formerly tested against every kind) and the
-UI edges (popup open/close) in `pill.ts`; they are fed to the engine **by sequence number**,
-so one "you queued a message" is spoken once, not on every later beat.
+**Fact edges** are computed in `seat.ts` (`detectEdges`, covered kind by kind in
+`test/facts.test.ts`) and the UI edges (popup open/close) in `pill.ts`.  They are fed to the
+engine **through two independent sequence numbers** (`view/line.ts` → `freshEdges`), so one
+"you queued a message" is spoken once and never on every later beat.  Sharing one sequence
+number between the two streams was a real bug: opening the popup re-fed the last FACT edge,
+so `popupOpen` could never win and a stale `failed` inflated `failStreak` on every toggle.
 
-**Rotating text is not allowed in a live region.**  The popup's truth lives in a
-visually hidden `role="status"` node; the line rotates outside it.  The dock label is
-`aria-hidden` (the button already announces the truth); the popup's visible caption is
-not hidden (hiding visible text is an anti-pattern).
+**Rotating text is not allowed in a live region.**  The DOCK owns the one live region — a
+visually hidden, always-mounted `role="status"` node (the popup used to own it, which meant
+a state change was announced only while the popup happened to be open, and owning it in both
+places would announce everything twice).  The line rotates outside it, and the dock label is
+`aria-hidden`; the popup's visible caption is not hidden (hiding visible text is an
+anti-pattern).  The popup is `aria-modal`, takes focus on open, and Escape returns focus to
+the dock button.  The action picker exposes `aria-activedescendant` / `aria-controls` (arrow
+keys move a class, not a focusable row), and the clear-confirm dialog moves focus to its
+Cancel button and handles Escape.
 
 **The line's placement and its width are the second thing a user owns**: `off` / `left` /
 `right` (default `right`) as `dockText`, and `narrow` / `medium` / `wide` (default
@@ -323,8 +350,8 @@ say `GENERATED`:
   `<state>.<NN>` and `bridge.<from>.<to>.<NN>` keys must exist in each.
 - A new entry also needs its id in the pool structure (`line-pools.ts`) and the label
   dictionary, or it will never be drawn.
-- Nothing checks this for you any more.  A missing counterpart used to fail the suite and
-  the merged-pool gate; now it fails silently — as an untranslated or unreachable line.
+- `pnpm test` is the check: `test/labels.test.ts` fails on a missing counterpart, an
+  unreferenced entry, or a placeholder the renderer cannot fill.
 
 ---
 
@@ -346,23 +373,28 @@ BODY_SCALE = 4
 ### The player
 
 - **Pure reducer** (`player/timeline.ts`): `stepPlayback(state, input)` → the frame to draw.  State-change dwell, hold/re-roll, and lead/follow mirroring are all pure, unit-testable logic.
+- **`<PetCanvas>` reads the shared geometry** (`FACES` from `skin/geometry.ts`) instead of re-declaring it, so a canvas' backing store can never disagree with the surface's, and it re-binds when `interactive` flips (the element swaps between a bare `<canvas>` and a `<button><canvas>`).
 - **Shared rAF ticker** (`platform/clock.ts`): many surfaces, one rAF.  Hidden tabs pause it.  The
   iteration order is a snapshot rebuilt only when the ticker SET changes, so the steady state allocates
-  nothing per frame.
+  nothing per frame.  A ticker that registers DURING a frame does not arm a second rAF (`inFrame`
+  guard).
 - **Visibility gate** (`platform/visibility.ts`): ONE `IntersectionObserver` for every pet canvas.  The
   Workshop mounts 200+ canvases (106 library rows, the picker, the header, the skin card) and almost
   none are on screen; a canvas outside the viewport **detaches from the clock entirely** — not
   "entered and returned early", never called.  A 320 px warm-up margin means the next row is already
   parsed before it is visible, so scrolling never pays a first-frame parse.  No
-  `IntersectionObserver` (an old host) means "always visible" — the exact old behaviour,
-  which a now-deleted test used to pin.
+  `IntersectionObserver` (an old host) means "always visible" — the exact old behaviour.
 - **Surface driver** (`platform/surface.ts`): the skin is resolved **once per change**, not per frame —
   the change event (a write, the chunk landing, another tab) is the only thing that can move it, so
-  the 110 `localStorage` reads per frame the Workshop used to pay are gone.  Then: canvas sizing,
-  sprite-identity dirty check (a tick that changes nothing draws nothing), drawImage through the
-  bitmap cache.
+  the 110 `localStorage` reads *per rAF frame* the Workshop used to pay are gone.  (`readStored()`
+  still runs on each React render of the dock/settings — it is an ordinary `getItem` on a small
+  string, and it is what makes a cross-tab write visible without an event.)  Then: canvas sizing,
+  a dirty check on sprite identity **and** the frame's `dx`/`dy` (two frames can share one `Drawing`
+  and still move), drawImage through the bitmap cache.  `getContext('2d')` is guarded here and in
+  `settings/frame-canvas.ts` — a host that refuses the context gets a blank canvas, not a throw.
 - **One reduced-motion query** (`view/reduce-motion.ts`): every canvas used to build its own
-  `MediaQueryList` and listener for the same question; they now share one ref.
+  `MediaQueryList` and listener for the same question; they now share one ref, and the shared query
+  only latches once it really installed (a host without `matchMedia` never marks itself handled).
 - **The 1:1 pixel board is ONE canvas** + a CSS graticule (`.status-pet-grid::after`, pitch
   `100% / n`), not 16,384 `<div>`s — see the Workshop section.
 - **Take channel** (`player/sync.ts`): the dock publishes; the popup mirrors.  A stale leader (> 250 ms) is treated as absent.
@@ -445,49 +477,73 @@ talk out — every beat that lands still says a line; there is no silent beat.
 1. Add its `Artwork` to `src/skin/catalog.ts`.
 2. Add its name to `BUILTIN_SKINS` in `registry.ts`.
 3. Add `settings.skin.<name>` to both locale files (`src/labels/en.ts`, `zh.ts`).
-4. `pnpm build`, then refresh and check it by hand (there is no test suite).
+4. `pnpm build`, run `pnpm test` (the artwork gate picks up the new skin automatically), then
+   refresh and check it by hand.
 
 ### Adding a state
 
 1. **Find the signal first.**  A state without a real fact that reaches it is decoration.
-   The reachability assertion used to live in `test/pet.test.ts` and is gone — so verify by
-   hand that something real actually reaches the state.
+   `test/facts.test.ts` asserts that every state is reachable from a constructed fact
+   combination, so a state you add without a signal fails the suite.
 2. Add `PetState` to `vocabulary.ts`, plus `STATES` and `STATE_NAMES`.
 3. Add a `deriveState` branch in `facts.ts` (and, if it is a tool category, a row in
    `tool-catalog.ts`).
 4. Add copy directly to `src/labels/lines/zh.ts` and `en.ts` (same keys), wire the ids into
    `src/behavior/line-pools.ts`, and tag any new action in `src/skin/tones.ts`.
 5. Give it artwork: assign actions in `src/skin/catalog.ts`'s state table (every action
-   should belong to exactly one state — that invariant was machine-checked by a deleted
-   script, so it is editorial now); add the `settings.hint.<state>` key and the status
-   label to both locales.
-6. `pnpm build` and exercise it by hand.
+   must belong to at least one state, and every state to at least one action —
+   `test/artwork.test.ts` enforces both); tag any new action in `src/skin/tones.ts`; add the
+   `settings.hint.<state>` key and the status label to both locales.
+6. `pnpm test` (the copy contract, the truth table and the tone coverage all re-check), then
+   `pnpm build` and exercise it by hand.
 
 ---
 
 ## Testing
 
-**The suite was deleted with `test/`** (23 files, 206 tests) along with `pnpm test` and the
-`pretest` rebuild.  There is no automated gate any more.  What that costs, in order of how
-likely it is to bite:
-
-- the 22-state truth table, priority and reachability — a wrong branch in `deriveState`
-  now ships silently;
-- the copy contract: zh/en key symmetry, the "every line still reads with all variables
-  empty" rule, sequence/bridge integrity, action-tone coverage;
-- the perf surface contract: a canvas the observer has not called visible is not on the
-  clock, 60 frames × 8 canvases do not read the store, a skin change is consumed once;
-- the generated `client.js` registration and artwork-chunk contract.
-
-Verification is now **build + manual**:
+`pnpm test` runs the whole gate — nine files, 102 tests, all green in ~0.4 s; plain `node --test` with type stripping, no browser, no test framework, no extra dependency:
 
 ```bash
-pnpm typecheck   # tsc --noEmit
+pnpm typecheck   # tsc --noEmit (src AND test)
+pnpm test        # node --experimental-strip-types --test test/*.test.ts
+pnpm check       # both
 pnpm build       # then refresh the DSH web GUI
 ```
 
-Then walk the checklist below.  It is the whole safety net now — items 7–15 are the ones
-that used to be pinned by `lines.test.ts` / `discourse.test.ts` / `line-scroll.test.ts`.
+What it covers, in the order the old suite used to cost the most:
+
+- **the state truth table** (`facts.test.ts`): all 22 states reachable from a constructed
+  fact combination, the priority order, and the shape guards around DSH's undocumented
+  objects (`toPendingFact` / `toRunningTools` / `toStreamKind` / `detectEdges`);
+- **the copy contract** (`labels.test.ts`, `lines.test.ts`): zh/en key symmetry, the pool ↔
+  dictionary bijection, no unreachable entry, no unfillable placeholder, and the rule that
+  **every line still reads with every variable missing**;
+- **the pool structure** (`pools.test.ts`): sequences contiguous `1..of` with one tone,
+  every fact-edge name has a pool, no duplicate ids, no unreachable self-bridge;
+- **the discourse engine** (`discourse.test.ts`): no blank beat in any state, every drawn
+  id belongs to a pool, the recency window and its least-recently-used fallback, sequence
+  completion across a murmur, event priority, the mood counter, reduced motion;
+- **the artwork** (`artwork.test.ts`): `skin/validate.ts` over the whole catalog, tone
+  coverage, no orphan action, resolution totality and memoization, the registry's
+  refuse-to-half-install rule;
+- **the wardrobe** (`skin.test.ts`): the pixel codec, the 4× body fallback, the assignment
+  sanitizer, the library rules, storage identity and the refused-write path;
+- **the player and the line box** (`player.test.ts`, `scroll.test.ts`): the pure tick
+  reducer, the rotation policy, and `planScroll`'s endpoint pinned to exactly what the CSS
+  expression computes.
+
+It is a gate on the *pure* layers.  A browser-only behaviour — the shared rAF, the
+visibility gate, the surface lifecycle — is argued in the code and has to be exercised by
+hand; if you touch it, add the assertion where it can run (the modules are structured so
+that most of it can).
+
+Verification is therefore **suite + build + manual**:
+
+```bash
+pnpm typecheck   # tsc --noEmit
+pnpm test        # the gate
+pnpm build       # then refresh the DSH web GUI
+```
 
 ### Manual checklist
 

@@ -12,6 +12,9 @@ import { translatorOrFallback } from '../../labels/index.ts';
 import type { Translator } from '../../labels/index.ts';
 import { ActionThumb } from './action-thumb.ts';
 
+/** 弹窗 primitive 缺席时的替身：让 hook 无条件被调用。 */
+const NO_DISMISS = (): void => {};
+
 export function ActionPicker(props: {
   t?: Translator;
   skin: string;
@@ -26,7 +29,16 @@ export function ActionPicker(props: {
   const [hi, setHi] = React.useState(0);
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const panelRef = React.useRef<HTMLDivElement | null>(null);
-  if (useDismissOnOutsidePointer) useDismissOnOutsidePointer(rootRef, open, setOpen, panelRef);
+  // 无条件调用（primitive 缺席时用 no-op 替身），条件式 hook 调用是规则违反。
+  const dismissOnOutside = useDismissOnOutsidePointer || NO_DISMISS;
+  dismissOnOutside(rootRef, open, setOpen, panelRef);
+  // The listbox and its options need stable ids so the input can point at the
+  // highlighted one with `aria-activedescendant` — arrow keys move a CSS class,
+  // and a class is invisible to assistive tech.
+  const idRef = React.useRef('');
+  if (!idRef.current) idRef.current = 'status-pet-picker-' + Math.random().toString(36).slice(2, 8);
+  const listId = idRef.current;
+  const optionId = (id: string) => listId + '-' + id;
 
   const label = (a: ActionInfo) => a.name || t('settings.actionN', { n: props.library.indexOf(a) + 1 });
   const q = query.trim().toLowerCase();
@@ -68,6 +80,7 @@ export function ActionPicker(props: {
     const text = label(a);
     return h('button', {
       key: a.id,
+      id: optionId(a.id),
       type: 'button',
       role: 'option',
       'aria-selected': a.id === props.value ? 'true' : 'false',
@@ -91,6 +104,8 @@ export function ActionPicker(props: {
       placeholder: t('settings.comboPlaceholder'),
       role: 'combobox',
       'aria-expanded': open ? 'true' : 'false',
+      'aria-controls': listId,
+      'aria-activedescendant': open && matches[hi] ? optionId(matches[hi].id) : undefined,
       'aria-label': t('settings.region.action'),
       'aria-autocomplete': 'list',
       onFocus: () => { if (!open) openList(); },
@@ -99,7 +114,7 @@ export function ActionPicker(props: {
     }),
     h('span', { className: 'status-pet-combo-caret', 'aria-hidden': 'true' }),
     open
-      ? h('div', { className: 'status-pet-combo-pop', ref: panelRef, role: 'listbox', 'aria-label': t('settings.region.action') },
+      ? h('div', { id: listId, className: 'status-pet-combo-pop', ref: panelRef, role: 'listbox', 'aria-label': t('settings.region.action') },
           h('div', { className: 'status-pet-combo-list' }, rows.length ? rows
             : h('div', { className: 'status-pet-hint' },
                 query ? t('settings.comboEmpty', { q: query.trim() }) : t('settings.emptyLibrary'))))

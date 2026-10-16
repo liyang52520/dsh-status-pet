@@ -1,4 +1,6 @@
-// Chinese copy — the shipped default for this UI.  See en.ts for the key rules.
+// Chinese copy — the locale this UI is written for.  See en.ts for the key rules.
+// (When the host supplies no translator at all, the FALLBACK dictionary is English:
+//  see LABEL_FALLBACK in labels/index.ts.)
 
 export const zh = {
   label: '状态宠物',

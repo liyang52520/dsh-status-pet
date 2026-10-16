@@ -6,7 +6,9 @@
   "scripts": {
     "build": "tsdown",
     "dev": "tsdown --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "check": "pnpm typecheck && pnpm test"
   },
   "exports": {
     ".": "./index.js",

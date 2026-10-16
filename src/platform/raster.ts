@@ -5,8 +5,8 @@
 //   * ImageData — one `putImageData` (plus, when the sprite is scaled, one
 //     `drawImage` from a scratch canvas) instead of one `fillRect` per opaque
 //     pixel.
-//   * the fillRect loop — the fallback for a context without ImageData (the
-//     node test suite's stub canvas).
+//   * the fillRect loop — the fallback for a context without ImageData (or for a
+//     `putImageData` the host refuses).
 
 import type { Sprite } from '../skin/model.ts';
 

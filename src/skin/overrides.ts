@@ -7,10 +7,12 @@
 //
 //   `{ 'whale-chan': { tool: ['xie-daima'] } }`
 //
-// An ABSENT state key means "no opinion — use the authored assignment" (so a
-// later artwork update still moves the states the user never touched), while a
-// PRESENT-BUT-EMPTY list means "this state deliberately plays nothing, it
-// follows idle" — the only way to say that about a state the artwork assigned.
+// An ABSENT state key means "no opinion — use the authored assignment", so a later
+// artwork update still moves the states the user never touched.  A list the user
+// EMPTIED is not stored at all (see `session.saveAssignments`): "plays nothing" is
+// the same thing as "follows idle", and one representation of that beats two.  The
+// one exception is the anchor — an empty `idle` is rescued back to the authored
+// assignment below, because a pet with nothing to play is a blank canvas.
 //
 // A stored diff is the only thing in the system that reaches the renderer
 // without being authored, so it is sanitized on the way in: unknown states are
@@ -59,6 +61,8 @@ export function applyDiff(art: Artwork | undefined, diff: AssignmentDiff | null)
     const next = raw
       .filter((id, i) => typeof id === 'string' && known.has(id) && raw.indexOf(id) === i)
       .slice(0, MAX_SELECTION);
+    // Present-but-empty (and a list that sanitized away to nothing) means "follow
+    // idle": the key is dropped rather than stored as an empty list.
     if (next.length) states[state] = next;
     else delete states[state];
     changed = true;

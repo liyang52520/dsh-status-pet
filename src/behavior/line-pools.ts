@@ -7,8 +7,8 @@
 //
 // 桥接池按 `from>to` 索引：状态**切换**时优先从那里抽一句把上一句接住。
 //
-// 文案在 src/labels/lines/{zh,en}.ts。原本的契约文档（docs/）与漂移守卫（test/）都已删除，
-// 两边是否同步、序列是否完整，现在只能靠人工复查。
+// 文案在 src/labels/lines/{zh,en}.ts。契约文档（docs/）仍然没有，但漂移守卫回来了：
+// test/labels.test.ts 管两边是否同步、test/pools.test.ts 管序列是否完整。
 
 import type { StateName, Tone } from './vocabulary.ts';
 
@@ -2435,16 +2435,6 @@ export const BRIDGE_SPECS: Record<string, readonly PoolLine[]> = {
     { id: "bridge.plan.read.01", tone: 'bright' },
     { id: "bridge.plan.read.02", tone: 'busy' },
     { id: "bridge.plan.read.03", tone: 'formal' },
-  ],
-  "tool>tool": [
-    { id: "bridge.tool.tool.01", tone: 'busy' },
-    { id: "bridge.tool.tool.02", tone: 'bright' },
-    { id: "bridge.tool.tool.03", tone: 'calm' },
-  ],
-  "error>error": [
-    { id: "bridge.error.error.01", tone: 'worry' },
-    { id: "bridge.error.error.02", tone: 'worry' },
-    { id: "bridge.error.error.03", tone: 'calm' },
   ],
   "woken>think": [
     { id: "bridge.woken.think.01", tone: 'bright' },

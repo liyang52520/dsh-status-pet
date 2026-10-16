@@ -18,6 +18,7 @@ import { React } from '../platform/deps.ts';
 import { TUNING } from '../behavior/tuning.ts';
 import { emptyFacts } from '../behavior/facts.ts';
 import type { PetFacts, PendingFact, RunningToolFact, StreamKind } from '../behavior/facts.ts';
+import type { Translator } from '../labels/index.ts';
 
 /** 用来判"边沿"的那几个事实（只留变化敏感的部分，避免每帧都当新事件）。 */
 export interface FactEdge {
@@ -50,7 +51,6 @@ export function detectEdges(prev: FactEdge | null, next: FactEdge): string[] {
   if (!prev.running && next.running && prev.tools === 0 && next.tools > 0) out.push('firstTool');
   return out;
 }
-import type { Translator } from '../labels/index.ts';
 
 // Fallbacks keep the hook count stable when the slot omits a prop, so a
 // contract change degrades to a decorative pet instead of a blank slot.
@@ -119,7 +119,8 @@ export function toPendingFact(interaction: unknown): PendingFact | null {
   return null;
 }
 
-/** `legacy.runningCalls` → 事实数组。 未知形状直接跳过那一项。 */export function toRunningTools(rawCalls: unknown): RunningToolFact[] {
+/** `legacy.runningCalls` → 事实数组。 未知形状直接跳过那一项。 */
+export function toRunningTools(rawCalls: unknown): RunningToolFact[] {
   if (!Array.isArray(rawCalls)) return [];
   const out: RunningToolFact[] = [];
   for (const call of rawCalls) {

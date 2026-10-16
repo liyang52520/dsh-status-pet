@@ -16,11 +16,12 @@
 //
 // Two pieces of text, two jobs (see view/dock/pill.ts):
 //   · the caption is the LINE — the pet's voice, allowed to change on a timer;
-//   · `props.status` is the TRUTH — what the agent is doing.  It labels the
-//     dialog and sits in a visually hidden live region, so a screen reader
-//     hears it once per state change and never hears the rotating line at all.
+//   · `props.status` is the TRUTH — it NAMES the dialog.  The announcement is the
+//     dock's job: its live region is always mounted, so the truth is spoken once
+//     per state change whether or not this panel is open.  A second live region
+//     here would announce everything twice.
 
-import { h } from '../../platform/deps.ts';
+import { React, h } from '../../platform/deps.ts';
 import { LIVE_ZOOM } from '../../skin/geometry.ts';
 import { POPUP_LINE_W } from '../../platform/theme.ts';
 import { translatorOrFallback } from '../../labels/index.ts';
@@ -36,7 +37,7 @@ const BEST_SOURCE: SkinSource = { kind: 'best' };
 export function DockPopup(props: {
   panelRef: unknown;
   position: Record<string, unknown> | null;
-  /** The status truth: the dialog's accessible name and the live region. */
+  /** The status truth: the dialog's accessible name (announced by the dock). */
   status: string;
   /** The dock's current line.  null (an empty pool) falls back to the truth. */
   line?: string | null;
@@ -47,6 +48,15 @@ export function DockPopup(props: {
 }) {
   const t = translatorOrFallback(props.t);
   const { reaction, react } = useReaction();
+
+  // Keyboard users land inside the panel when it opens: the dialog itself is
+  // focusable (tabIndex -1) and takes focus on mount.  Closing never moves focus
+  // back by force — an outside click must keep the focus the user aimed at.
+  const panelRef = props.panelRef as { current: HTMLElement | null } | undefined;
+  React.useEffect(() => {
+    const node = panelRef ? panelRef.current : null;
+    if (node && typeof node.focus === 'function') node.focus();
+  }, []);
 
   const caption = props.line || props.status;
   // 字幕也是固定宽度 + 溢出滚动（和 dock 的台词同一套）：面板锚在宠物上，字幕每
@@ -64,6 +74,8 @@ export function DockPopup(props: {
     ref: props.panelRef,
     className: 'status-pet-popup',
     role: 'dialog',
+    'aria-modal': 'true',
+    tabIndex: -1,
     'aria-label': props.status,
     style: props.position ? props.position : { visibility: 'hidden', left: 0, top: 0 },
     onClick,
@@ -83,7 +95,6 @@ export function DockPopup(props: {
         ref: scroll.runRef,
         className: 'status-pet-line-run' + (scroll.scrolling ? ' scrolling' : ''),
         style: scroll.style || undefined,
-      }, caption)),
-    h('div', { className: 'status-pet-sr', role: 'status' }, props.status)
+      }, caption))
   );
 }

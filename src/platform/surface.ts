@@ -92,7 +92,11 @@ export function startSurface(
   canvas: HTMLCanvasElement,
   opts: SurfaceOptions,
 ): () => void {
-  const ctx = canvas.getContext('2d')!;
+  const maybeCtx = canvas.getContext('2d');
+  // A canvas without a 2D context (exhausted contexts, a stubbed DOM) degrades to
+  // "nothing to draw" instead of throwing out of a mount effect.
+  if (!maybeCtx) return () => {};
+  const ctx: CanvasRenderingContext2D = maybeCtx;
   ctx.imageSmoothingEnabled = false;
 
   const skinFn = opts.skin;
@@ -117,6 +121,12 @@ export function startSurface(
 
   let drawnSpriteId: object | null = null;
   let drawnScale = 0;
+  /** The offset the last drawn frame had.  The sprite identity alone is NOT a
+   *  sufficient dirty check: two frames may share one `Drawing` (the sprite cache
+   *  is keyed by the drawing object) while differing in `dx`/`dy` — a hop authored
+   *  as "same pixels, moved" would then never move. */
+  let drawnDx = 0;
+  let drawnDy = 0;
   let blanked = true;
 
   /** The last action reported to `onAction`, so a tick that rolled nothing is
@@ -138,6 +148,11 @@ export function startSurface(
   function prepare(): void {
     if (!skin) return;
     drawnSpriteId = null;
+    drawnDx = 0;
+    drawnDy = 0;
+    // A skin change can move the action under the same id: report the new one even
+    // if the id string happens to match, so the dock's tone never sticks.
+    reportedActionId = null;
     blanked = false;
     scale = scaleFor(skin);
     const spec = FACES[skin.face];
@@ -207,17 +222,19 @@ export function startSurface(
     }
 
     const frame = result.frame;
-    if (frame.sprite === drawnSpriteId && scale === drawnScale) return;
+    const dx = (padX + frame.dx) * scale;
+    const dy = (baseY + frame.dy) * scale;
+    if (frame.sprite === drawnSpriteId && scale === drawnScale && dx === drawnDx && dy === drawnDy) return;
     drawnSpriteId = frame.sprite;
     drawnScale = scale;
+    drawnDx = dx;
+    drawnDy = dy;
     blanked = false;
 
     const cw = specW * scale;
     const ch = specH * scale;
     ctx.clearRect(0, 0, cw, ch);
     const bitmap = spriteBitmap(frame.sprite, active.palette, scale);
-    const dx = (padX + frame.dx) * scale;
-    const dy = (baseY + frame.dy) * scale;
     if (bitmap) {
       ctx.drawImage(bitmap, dx, dy);
     } else {

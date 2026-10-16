@@ -13,6 +13,8 @@
 
 import { STATE_NAMES } from '../behavior/vocabulary.ts';
 import type { StateName } from '../behavior/vocabulary.ts';
+
+const STATE_NAMES_SET: ReadonlySet<string> = new Set<string>(STATE_NAMES);
 import { MAX_SELECTION } from './model.ts';
 import type { Action, Artwork, StateTable } from './model.ts';
 
@@ -92,6 +94,7 @@ export function library(art: Artwork): ActionInfo[] {
  *  "assigning an action to a state" — the action itself is untouched, so two
  *  states that both play it still share one definition. */
 export function assign(art: Artwork, state: string, actionId: string, on: boolean): Artwork {
+  if (!STATE_NAMES_SET.has(state)) return art;
   if (!actionById(art, actionId)) return art;
   const current: readonly string[] = art.states[state as StateName] || [];
   const has = current.includes(actionId);

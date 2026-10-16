@@ -20,13 +20,14 @@ import type { PoolLine } from './line-pools.ts';
 import { TUNING } from './tuning.ts';
 import type { StateName, Tone } from './vocabulary.ts';
 
-/** 她说这句话时，是从哪一层抽出来的。 */
+/** 她说这句话时，是从哪一层抽出来的。
+ *  没有 `continuer` 这一档：填充词是**插在当前这件事里**的一句，它的 source 仍然是当前
+ *  这件事（见 E3），所以框架里永远不会存下一个"填充词来源"。 */
 export type LineSource =
   | { kind: 'state'; state: StateName }
   | { kind: 'bridge'; from: StateName; to: StateName }
   | { kind: 'event'; name: string }
-  | { kind: 'topic'; name: string }
-  | { kind: 'continuer' };
+  | { kind: 'topic'; name: string };
 
 /** 一次"目标"快照（话题边沿用它判断你有没有换地方）。 */
 export interface Topic {
@@ -76,7 +77,6 @@ export interface DiscourseState {
   turn: number | null;
   /** 本轮出现过的目标（去重），`topicMany` 用。 */
   targets: readonly string[];
-  greeted: boolean;
 }
 
 export interface DiscourseInput {
@@ -89,7 +89,6 @@ export interface DiscourseInput {
   /** 刚刚发生的事实**边沿**（按重要性排序，取第一个有池的）。 */
   events?: readonly string[];
   running?: boolean;
-  errored?: boolean;
   elapsedMs: number;
   reducedMotion?: boolean;
   /** 关掉某一层 —— 测试与"只要状态台词"的场合用。 */
@@ -99,11 +98,19 @@ export interface DiscourseInput {
 export function emptyDiscourse(): DiscourseState {
   return {
     id: null, source: null, state: null, key: '', remainingMs: 0, recent: [], group: null,
-    beat: 0, interjected: false, spoken: 0, still: 0, failStreak: 0, topic: {}, lastTopicSpoken: '', turn: null, targets: [], greeted: false,
+    beat: 0, interjected: false, spoken: 0, still: 0, failStreak: 0, topic: {}, lastTopicSpoken: '', turn: null, targets: [],
   };
 }
 
 // ── 池 ──
+
+/** 抽取要用的池：**空池跟随 idle**（与动作分配同一条规矩）。 少了这一层，池子为空的
+ *  状态会走 `record` 的 line=null 分支，id 与来源都停在上一个状态上 —— 她就一直念着
+ *  上一个状态的话。 现在 24 个池都非空，所以它是防回归，不是救火。 */
+function drawPool(source: LineSource, tables: DiscourseTables): readonly PoolLine[] {
+  const own = poolOf(source, tables);
+  return own.length ? own : (tables.pools.idle || []);
+}
 
 function poolOf(source: LineSource | null, tables: DiscourseTables): readonly PoolLine[] {
   if (!source) return [];
@@ -112,7 +119,6 @@ function poolOf(source: LineSource | null, tables: DiscourseTables): readonly Po
     case 'bridge': return tables.bridges[`${source.from}>${source.to}`] || [];
     case 'event': return tables.events[source.name] || [];
     case 'topic': return tables.topics[source.name] || [];
-    case 'continuer': return tables.continuers;
   }
 }
 
@@ -148,14 +154,26 @@ function byTone(pool: readonly PoolLine[], tone: Tone | null | undefined): reado
 
 // ── 抽取 ──
 
-/** 近期窗口过滤：先排除窗口内的，排空了就只排除最近 4 条，再空就不过滤。 */
+/**
+ * 近期窗口过滤。
+ *
+ * 池子比窗口大时：整窗排除，这就是"24 条之内不重复"。
+ * 池子被音区/心情收窄到比窗口还小时（`petted` 的 worry 只有 5 条、`read` 的 calm
+ * 只有 8 条），整窗排除必然排空 —— 这时**退回到"最久没说的那些"**，也就是一个正经
+ * 的 shuffle-bag：重复间隔 = 池子大小，而不是原来的"只排最近 4 条"（那会把重复间隔
+ * 压到 2–5 拍，听起来就是复读机）。
+ */
 function withinRecency(pool: readonly PoolLine[], recent: readonly string[]): readonly PoolLine[] {
   const window = recent.slice(-TUNING.lineRecentWindow);
   const fresh = pool.filter((line) => !window.includes(line.id));
   if (fresh.length) return fresh;
-  const tail = recent.slice(-4);
-  const looser = pool.filter((line) => !tail.includes(line.id));
-  return looser.length ? looser : pool;
+  // 池子被窗口盖住了：`recent` 里位置越靠前 = 越久没说。
+  const lastUse = new Map<string, number>();
+  for (let i = 0; i < window.length; i++) lastUse.set(window[i], i);
+  let oldest = Number.POSITIVE_INFINITY;
+  for (const line of pool) oldest = Math.min(oldest, lastUse.get(line.id) ?? -1);
+  const stale = pool.filter((line) => (lastUse.get(line.id) ?? -1) === oldest);
+  return stale.length ? stale : pool;
 }
 
 /** 新话头只在「独立句 + 序列首句」里挑；`allowMid` 时才允许从中间接。 */
@@ -269,11 +287,9 @@ export function stepDiscourse(
 
   // ── 先结算事实带来的心情与目标 ──
   let failStreak = prev ? prev.failStreak : 0;
-  let greeted = prev ? prev.greeted : false;
   for (const event of input.events || []) {
     if (event === 'failed') failStreak += 1;
     if (event === 'cleared' || event === 'retry') failStreak = 0;
-    if (event === 'greet') greeted = true;
   }
   const targets = collectTargets(prev, topic, turn);
 
@@ -284,7 +300,6 @@ export function stepDiscourse(
     state,
     key,
     failStreak,
-    greeted,
     turn,
     topic,
     targets,
@@ -335,8 +350,7 @@ export function stepDiscourse(
     const source: LineSource = bridge && bridge.length
       ? { kind: 'bridge', from: prev!.state as StateName, to: state }
       : { kind: 'state', state };
-    const pool = poolOf(source, tables);
-    const line = pickFrom(pool, drawOpts);
+    const line = pickFrom(drawPool(source, tables), drawOpts);
     return done(line, source, baseDwell(), 1);
   }
 
@@ -393,7 +407,7 @@ export function stepDiscourse(
 
   // ── E2④ 回到状态池 ──
   const source: LineSource = { kind: 'state', state };
-  const statePool = poolOf(source, tables);
+  const statePool = drawPool(source, tables);
   const beat = current.beat + 1;
 
   // ── E4 成串：一串最多 lineMaxBeat 拍；串内短打扮长停顿 ──

@@ -8,8 +8,8 @@
 //
 // A canvas is LARGER than its face on both axes, so a frame's `dx`/`dy` has
 // headroom: `baseY` above, the remainder below, `padX` on each side (the sprite
-// draws at `padX + dx`).  `maxOffset === padX` is the invariant the suite
-// re-derives from real artwork, so a legal offset can never clip a pixel.
+// draws at `padX + dx`).  `maxOffset === padX` is the invariant re-derived from the
+// real artwork (test/skin.test.ts), so a legal offset can never clip a pixel.
 
 export type FaceName = 'avatar' | 'body';
 

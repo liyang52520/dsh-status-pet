@@ -31,27 +31,36 @@ export function SettingsPage(props: { t?: Translator } | null) {
   const t = translatorOrFallback(props.t);
 
   const [skin, setSkin] = React.useState(() => activeSkin().name);
-  React.useEffect(() => onSkinChange(() => setSkin(activeSkin().name)), []);
-
   const [view, setView] = React.useState<WorkshopView>('states');
   const [face, setFace] = React.useState<FaceName>(AVATAR_FACE);
   const [stateName, setStateName] = React.useState<string>('idle');
   const [actionId, setActionId] = React.useState<string | null>(null);
   const [rev, setRev] = React.useState(0);
 
-  const library: ActionInfo[] = libraryOf(skin);
+  // Any store change bumps `rev` as well as the name: the artwork chunk landing
+  // keeps the SAME skin name (`activeSkin().name` does not move), so a setSkin of
+  // an equal string would bail out and the Workshop would stay empty for the whole
+  // session.  `rev` is what makes that change visible.
+  React.useEffect(() => onSkinChange(() => {
+    setSkin(activeSkin().name);
+    setRev((r) => r + 1);
+  }), []);
+
+  const library: ActionInfo[] = React.useMemo(() => libraryOf(skin), [skin, rev]);
   const selected = library.find((a) => a.id === actionId) || library[0] || null;
-  void rev;
 
   // How many actions each state plays — computed ONCE per library, not once per
   // row.  This used to be `library.filter(...)` inside `stateRow`, i.e. 24 × 106
   // `includes` on every render of the Workshop, and the profile showed it as the
   // single biggest plugin frame in the whole assignment flow.
-  const playsByName = new Map<string, number>();
-  for (let i = 0; i < library.length; i++) {
-    const used = library[i].usedBy;
-    for (let k = 0; k < used.length; k++) playsByName.set(used[k], (playsByName.get(used[k]) || 0) + 1);
-  }
+  const playsByName = React.useMemo(() => {
+    const map = new Map<string, number>();
+    for (let i = 0; i < library.length; i++) {
+      const used = library[i].usedBy;
+      for (let k = 0; k < used.length; k++) map.set(used[k], (map.get(used[k]) || 0) + 1);
+    }
+    return map;
+  }, [library]);
 
   // The 24 state rows: one line each, grouped states / reactions.  They live in
   // their OWN scrolling box — 24 rows are far taller than the action library

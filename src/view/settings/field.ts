@@ -1,6 +1,6 @@
 // A field row — a label beside its body, the spine of a settings card.
 // A plain function, not a component: it holds no state, and keeping its output
-// in the caller's tree is what lets the tests read each card as one page.
+// in the caller's tree is what keeps the settings cards one flat element tree.
 
 import { h } from '../../platform/deps.ts';
 import type { ReactNode } from '../../platform/deps.ts';

@@ -41,7 +41,7 @@ export interface ResolvedFrame {
 export interface ResolvedAnimation {
   /** The action this was resolved from — what the surface reports to its owner
    *  so the dock can pick a speech line for the tone she is currently in.
-   *  Optional: a hand-built animation in a test carries no id. */
+   *  Optional: a hand-built animation (a fixture) carries no id. */
   id?: string;
   frames: ResolvedFrame[];
   /** One full play-through, in ms.  Computed once here instead of re-summing

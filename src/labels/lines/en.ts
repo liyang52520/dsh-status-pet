@@ -2,7 +2,7 @@
 // 但 bench/ 与 docs/ 已删除：**这个文件现在是源头，直接改它**。
 //
 // 键是 `<状态>.<两位序号>` 与 `bridge.<from>.<to>.<两位序号>`。
-// 两份语言必须键集相同 —— 以前由 test/lines.test.ts 强制，那个测试已不存在，靠自觉。
+// 两份语言必须键集相同 —— test/labels.test.ts 强制这一点。
 
 export const LINES_EN: Record<string, string> = {
   "idle.01": "Just drifting right here",
@@ -2277,12 +2277,6 @@ export const LINES_EN: Record<string, string> = {
   "bridge.plan.read.01": "Planned, off to read～",
   "bridge.plan.read.02": "Hm, opening the material first",
   "bridge.plan.read.03": "Plan set, moving to reading",
-  "bridge.tool.tool.01": "This one's done, next up",
-  "bridge.tool.tool.02": "Switching to another～",
-  "bridge.tool.tool.03": "Hm… carrying on",
-  "bridge.error.error.01": "Tripped up again",
-  "bridge.error.error.02": "This one's rough too",
-  "bridge.error.error.03": "Hm… still no good",
   "bridge.woken.think.01": "Awake, let me see～",
   "bridge.woken.think.02": "Mm… getting up now",
   "bridge.woken.think.03": "Hm… shaking off sleep",
@@ -3206,4 +3200,3 @@ export const LINES_EN: Record<string, string> = {
 };
 
 /** 3198 条。 */
-export const LINES_EN_COUNT = 3198;

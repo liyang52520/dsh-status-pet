@@ -6,8 +6,10 @@
 // 三条铁律：
 //   1. **纯函数**，无 DOM、无时钟（`now` 由调用方传入），可在 node 直接验证。
 //   2. **绝不抛错**：`argsRaw` 在流式阶段可能是截断的 JSON，解析失败就当没有参数。
-//   3. **绝不回显敏感长文本**：一切进台词的字符串都截断、去换行、去重空白。命令行尤其
-//      可能带 token，所以只取首段并限长；宁可信息少，不可把密钥念出来。
+//   3. **不回显敏感长文本**：一切进台词的字符串都折叠空白、限长，命令行与 URL 还会先过
+//      一遍 `redactSecrets` —— `--token=xxx` / `Bearer xxx` / `API_KEY=xxx` 这类最常见的
+//      形态会被换成 `***`。 这不是万无一失的脱敏（没有任何正则脱敏是），它只是保证
+//      **状态栏不会把最典型的密钥形态原样念出来**；限长本身隔不断密钥，别把它当脱敏。
 
 import type { ToolCategory } from './tool-catalog.ts';
 import { categoryOf } from './tool-catalog.ts';
@@ -47,6 +49,30 @@ export function clip(value: unknown, max: number): string | undefined {
   const flat = value.replace(/\s+/g, ' ').trim();
   if (!flat) return undefined;
   return flat.length > max ? flat.slice(0, max - 1) + '…' : flat;
+}
+
+/** 最常见的密钥形态：`--token=x`、`TOKEN=x`、`Authorization: Bearer x`、`api_key=x`。
+ *  只替换**值**，键名保留，于是命令行读起来还是那条命令，只是值没了。 */
+const SECRET_PATTERNS: readonly RegExp[] = [
+  // key = value / key: value（键名里含 token/secret/password/... 即可）
+  /((?:[-_]{0,2}[A-Za-z0-9.]*(?:token|secret|passwd|password|pwd|api[-_]?key|apikey|access[-_]?key|auth)\b)\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)/gi,
+  // Authorization: Bearer xxx
+  /(\bBearer\s+)([A-Za-z0-9._~+/=-]{6,})/gi,
+  // 纯大写形式的 shell 赋值：FOO_TOKEN=xxx
+  /(\b[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|KEY)\s*=\s*)(\S+)/g,
+];
+
+/** 把 `***` 放进密钥的位置。 幂等：再次调用不会把 `***` 之外的东西改掉。 */
+export function redactSecrets(value: string): string {
+  let out = value;
+  for (const pattern of SECRET_PATTERNS) out = out.replace(pattern, '$1***');
+  return out;
+}
+
+/** 命令行/URL 的取值口径：先脱敏，再折叠空白并限长。 */
+function clipSensitive(value: unknown, max: number): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  return clip(redactSecrets(value), max);
 }
 
 /** basename，兼容 POSIX 与 Windows 分隔符。 */
@@ -93,7 +119,6 @@ export function parseArgs(argsRaw: unknown): Record<string, unknown> {
  * `name` 键在 `agent` 池里是对象名、在 `tool` 池里是技能名，而不会互相污染。
  */
 export function varsFromCall(
-  toolName: string | null | undefined,
   category: ToolCategory,
   argsRaw: unknown,
 ): LineVars {
@@ -105,7 +130,7 @@ export function varsFromCall(
   };
 
   const cmd = pick(args, ['command', 'cmd']);
-  if (category === 'shell') put('cmd', clip(cmd, VARS_LIMITS.cmd));
+  if (category === 'shell') put('cmd', clipSensitive(cmd, VARS_LIMITS.cmd));
 
   const path = pick(args, ['file_path', 'filePath', 'path', 'file', 'notebook_path']);
   if (path) {
@@ -117,7 +142,7 @@ export function varsFromCall(
   put('q', clip(pick(args, ['query', 'queries', 'search', 'q', 'prompt']), VARS_LIMITS.q));
 
   const url = pick(args, ['url', 'uri']);
-  if (url) put('url', clip(shortUrl(url), VARS_LIMITS.url));
+  if (url) put('url', clipSensitive(shortUrl(url), VARS_LIMITS.url));
 
   put('task', clip(pick(args, ['subject', 'description', 'task', 'title']), VARS_LIMITS.task));
 
@@ -125,7 +150,6 @@ export function varsFromCall(
   put('goal', clip(pick(args, ['objective', 'goal']), VARS_LIMITS.goal));
   if (category !== 'agent') put('skill', clip(pick(args, ['name', 'skill']), VARS_LIMITS.skill));
 
-  void toolName;
   return out;
 }
 
@@ -153,7 +177,7 @@ export function varsForFacts(
   const first = facts.tools[0];
   const category: ToolCategory = categoryOf(first ? first.name : '');
   const vars: Record<string, string | undefined> = {
-    ...varsFromCall(first ? first.name : null, category, first ? first.argsRaw : undefined),
+    ...varsFromCall(category, first ? first.argsRaw : undefined),
   };
 
   if (facts.tools.length > 1) vars.n = String(facts.tools.length);
@@ -180,15 +204,48 @@ export function varsForFacts(
 }
 
 /**
- * 渲染一条台词：把 `{var}` 换成值，并把因缺失变量留下的空白收敛掉。
+ * 缺变量时用来顶位的**通用名词**。
  *
- * 这一步和抽取一样重要：句子必须在**变量全缺**时依然成立（"翻开 {} 看看"就废了）。
- * 所以替换后统一折叠空格、清掉空括号与空引号、去掉行尾/行首的孤立标点。
+ * 为什么需要它：台词是按"这里有个名词"写的（`翻开{file}慢慢看`），变量一缺，
+ * 替换成空串就留下一个洞（`翻开慢慢看`、`在里找`、`把 摊平了看`）。 老测试逐条
+ * 断言过"变量全空时句子仍然成立"，那个断言随 test/ 一起删了，于是这种洞已经长出
+ * 133 条——所以补位的责任回到渲染这一步，而不是指望每条文案都写得能扛住空串。
+ *
+ * 两份语言不是"界面语言"决定的，而是**句子自己的语言**决定的：模板里有没有汉字。
+ * 组件拿不到宿主当前 locale（`t` 只是个查表函数），但模板已经是本地化后的文本，
+ * 从文本判断最准，也免得两处 locale 状态漂移。 数字类变量给的是**能读通的占位
+ * 数词**（`几` / `a few` / `60`），它们只在变量真的缺失时出现。
+ */
+export const VARS_FALLBACK: { zh: Record<string, string>; en: Record<string, string> } = {
+  zh: {
+    cmd: '这条命令', file: '这个文件', dir: '这个目录', pat: '这个线索', q: '这个词',
+    url: '这个页面', task: '这桩活', agent: '队友', goal: '这个目标',
+    skill: '这个工具', name: '这个工具', why: '那件事',
+    secs: '好几十', n: '几', nq: '几', turn: '一', step: '一',
+  },
+  en: {
+    cmd: 'this command', file: 'this file', dir: 'this folder', pat: 'this pattern',
+    q: 'this word', url: 'this page', task: 'this task', agent: 'the teammate',
+    goal: 'this goal', skill: 'this tool', name: 'this tool', why: 'the request',
+    secs: '60', n: 'a few', nq: 'a few', turn: 'one', step: 'one',
+  },
+};
+
+/** 模板里有没有汉字 —— 决定用哪份补位表。 全角标点（`～`）不算，英文台词里也有。 */
+const HAN_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+
+/**
+ * 渲染一条台词：把 `{var}` 换成值（缺了就用 `VARS_FALLBACK` 的名词顶上），并把
+ * 多余的空白收敛掉。
+ *
+ * 替换后统一折叠空格、清掉空括号与空引号、去掉行首行尾的孤立标点。
  */
 export function renderLine(text: string, vars: Record<string, string | undefined>): string {
+  const fallback = HAN_RE.test(text) ? VARS_FALLBACK.zh : VARS_FALLBACK.en;
   let out = text.replace(/\{([a-z]+)\}/g, (_m, key: string) => {
     const value = vars[key];
-    return typeof value === 'string' ? value : '';
+    if (typeof value === 'string' && value) return value;
+    return fallback[key] || '';
   });
   out = out.replace(/[ \t]{2,}/g, ' ');
   out = out.replace(/[（(]\s*[)）]/g, '');

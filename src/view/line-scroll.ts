@@ -14,14 +14,15 @@
 //     甚至会停在倒数第二个字，然后过一会儿把剩下的整段蹦出来。
 //   · 写成布局表达式之后，终点**按定义**就是"尾巴贴右缘"：量错、字体换、窗口变
 //     …都不可能让它多滚或少滚一个像素。
-// 所以 `planScroll` 只用测量值决定 **滚不滚 + 走多快**，`shiftPx` 只作为"CSS 那条
-// 式子应该等于多少"的规格留在测试里。
+// 所以 `planScroll` 只用测量值决定 **滚不滚 + 走多快**；`shiftPx` 是"CSS 那条式子
+// 应该等于多少"的规格，由 test/scroll.test.ts 逐像素钉住。
+// （不滚时它是 0：那时根本没有 transform —— 包括 slop 带内那不足 1px 的溢出。）
 
 import { React } from '../platform/deps.ts';
 import { useReducedMotion } from './reduce-motion.ts';
 
 /** 滚动节奏的旋钮。 `holdPct` 与 theme.ts 里 `statusPetScroll` 的关键帧百分比
- *  配对（各 12%），改一个必须改另一个 —— test 里钉着这对数字。 */
+ *  配对（各 12%），改一个必须改另一个 —— test/scroll.test.ts 钉着这对数字。 */
 export const SCROLL = {
   /** 匀速段的速度（px/s）。 12px 正文下大约每秒三个汉字，念得完。 */
   speedPxPerSec: 34,
@@ -43,7 +44,8 @@ export interface ScrollPlan {
   boxPx: number;
   /** 内容溢出框的宽度（px，负数表示还有富余）。 */
   overflowPx: number;
-  /** 终点位移（≤0 的 px）—— **规格**：CSS 的布局表达式必须等于它。 */
+  /** 终点位移（≤0 的 px）—— **规格**：CSS 的布局表达式必须等于它，逐像素相等
+   *  （不取整：CSS 用的是 `min(0px, 框宽 - 100%)`，取整就会与实现差最多 0.5px）。 */
   shiftPx: number;
   /** 走一趟的时长（ms）；不滚时为 0。 */
   cycleMs: number;
@@ -86,13 +88,14 @@ export function planScroll(contentPx: number, boxPx: number, reducedMotion = fal
     contentPx: content,
     boxPx: box,
     overflowPx: overflow,
-    shiftPx: -Math.round(overflow),
+    shiftPx: cssShiftPx(content, box),
     cycleMs,
   };
 }
 
 /** CSS 那条式子（`min(0px, calc(box - 100%))`）算出来的终点位移。 用来把"规格"和
- *  "实现"钉在一起：两者必须相等，否则就是多滚或少滚。 */
+ *  "实现"钉在一起：`planScroll(...).shiftPx` 在需要滚动时必须**逐像素等于**它，
+ *  否则就是多滚或少滚。 （不滚时 shiftPx 是 0：那时根本没有 transform。） */
 export function cssShiftPx(contentPx: number, boxPx: number): number {
   return Math.min(0, num(boxPx) - num(contentPx));
 }

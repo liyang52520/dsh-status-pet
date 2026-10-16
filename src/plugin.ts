@@ -13,13 +13,8 @@ import { tickerCount } from './platform/clock.ts';
 import { DEFAULT_SKIN, BUILTIN_SKINS } from './skin/registry.ts';
 import { KEY, SCHEMA, CHANGE_EVENT, readStored, writeStored } from './skin/storage.ts';
 import { activeSkin, bestSkin, skinFor, actionSkinFor, chooseSkin, saveAssignments, installCatalog, onSkinChange } from './skin/session.ts';
-import { resolveSkin, resolveActionSkin, blankSkin } from './skin/resolve.ts';
 import { documentOf, libraryOf } from './skin/documents.ts';
-import { applyDiff, diffOf } from './skin/overrides.ts';
-import { assign, setSelection, usedBy, library, usageIndex, withStates, actionById } from './skin/library.ts';
-import { faceFor, hasBody, hasActionBody, offsetScale, upscaleDrawing } from './skin/face.ts';
-import { TRANSPARENT, PIXEL_CHARS, hexPixel, pixelAt, rowPixels, parseSprite, spriteFor, spriteToRows } from './skin/pixels.ts';
-import { MAX_SELECTION, MAX_ACTIONS, MAX_FRAMES, DEFAULT_FRAME_MS } from './skin/model.ts';
+import { MAX_SELECTION } from './skin/model.ts';
 
 // The dock entry's position is fixed.
 export const DOCK_ORDER = -1000;
@@ -27,10 +22,30 @@ export const DOCK_ORDER = -1000;
 export function loadArtworkChunk(require: (spec: string) => unknown): void {
   const async = (require as { async?: (spec: string) => Promise<unknown> }).async;
   if (typeof async !== 'function') return;
-  async('./client.artwork.js').then((mod) => {
-    const catalog = (mod as { CATALOG?: Record<string, unknown> } | null)?.CATALOG;
-    if (catalog && typeof catalog === 'object') installCatalog(catalog);
-  }).catch(() => {});
+  const load = (attempt: number): void => {
+    async('./client.artwork.js').then((mod) => {
+      const catalog = (mod as { CATALOG?: Record<string, unknown> } | null)?.CATALOG;
+      if (!catalog || typeof catalog !== 'object') throw new Error('the artwork chunk carried no CATALOG');
+      installCatalog(catalog);
+    }).catch((err: unknown) => {
+      // A missing artwork chunk must not take the dock down with it — the pet
+      // degrades to a blank canvas.  But it must not be SILENT either: this used
+      // to be `.catch(() => {})`, which left "the pet is blank forever" with no
+      // clue anywhere.  One quiet retry, then say so on the console.
+      if (attempt < 1) {
+        setTimeout(() => load(attempt + 1), 2000);
+        return;
+      }
+      try {
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn('[status-pet] the artwork chunk did not load; the pet will stay blank', err);
+        }
+      } catch {
+        // no console: stay silent, exactly as before.
+      }
+    });
+  };
+  load(0);
 }
 
 interface PluginContext {
@@ -56,78 +71,44 @@ export function applyPlugin(ctx: PluginContext, ns: string, labels: Record<strin
 
 // ── public surface ──
 
-/** The skin layer, exposed for embedders and the test suite. */
+/** The plugin's public surface: the reads and writes an embedder (or another
+ *  plugin) can honestly use.  It is deliberately SMALL — the previous version was
+ *  a dumping ground of aliases (`GRIDS`, `cellFor`, `upscaleCell`), no-op stubs
+ *  and the pixel codec, all kept alive "for the test suite" after that suite was
+ *  deleted.  Tests import the modules directly; this object is for the host. */
 export const skinTools = {
-  // ── model ──
+  // ── names and geometry ──
   DEFAULT_SKIN,
   BUILTIN_NAMES: BUILTIN_SKINS,
-  MAX_TAKES: MAX_SELECTION,
-  MAX_LIBRARY: MAX_ACTIONS,
-  MAX_FRAMES,
-  DEFAULT_FRAME_MS,
-  // ── geometry ──
-  GRIDS: FACES,  // backwards compat alias
   FACES,
   LIVE_ZOOM,
+  MAX_SELECTION,
   // ── storage ──
   STORE_KEY: KEY,
-  SKIN_EVENT: CHANGE_EVENT,
   SCHEMA,
+  SKIN_EVENT: CHANGE_EVENT,
   loadStored: readStored,
   saveStored: writeStored,
-  onStoreWrite: (fn: () => void) => { /* no-op — session owns the wiring */ },
-  // ── session ──
+  // ── the live wardrobe ──
   activeSkin,
+  bestSkin: bestSkin,
+  skinFor,
+  actionSkinFor,
+  chooseSkin,
+  saveAssignments,
+  installCatalog,
+  onSkinChange,
   /** How many surfaces are attached to the shared frame clock right now.
    *  Off-screen canvases must not be among them (platform/visibility.ts). */
   tickerCount,
-  resolveBestSkin: bestSkin,
-  resolveSkin: (storedLike: unknown) => {
-    // adapter: old signature resolved from a stored-like object
-    if (storedLike && typeof storedLike === 'object') {
-      const s = storedLike as { skin?: string };
-      if (s.skin) chooseSkin(s.skin);
-    }
-    return activeSkin();
-  },
-  resolveNamedSkin: (name: string, face?: unknown) => skinFor(name, (typeof face === 'string' ? face as any : void 0)),
-  resolveTakeSkin: actionSkinFor,
-  installSkinArtwork: installCatalog,
-  refreshActiveSkin: () => { /* identity-keyed cache, no-op */ },
-  chooseSkin,
-  saveSkinStates: saveAssignments,
-  onSkinChange,
   // ── documents ──
   skinArtwork: (name: string) => documentOf(name),
   skinLibrary: libraryOf,
-  artworkDoc: documentOf,
-  artworkOverrides: diffOf,
-  withOverrides: applyDiff,
-  // ── library ──
-  actionsOf: (art: { actions: readonly unknown[] }) => art.actions,
-  assignTake: assign,
-  setStateSelection: setSelection,
-  libraryInfo: library,
-  usageIndex,
-  usedBy,
-  withStates: withStates as unknown as (art: any, states: Record<string, string[]>) => any,
-  // ── pixels ──
-  TRANSPARENT, PIXEL_CHARS, hexPixel, pixelAt, rowPixels,
-  parseFrame: parseSprite,
-  spriteFor,
-  spriteToRows,
-  // ── face ──
-  cellFor: faceFor,   // backwards compat name
-  upscaleCell: upscaleDrawing,
-  hasBody,
-  hasActionBody,
-  offsetScale,
   // ── ui ──
   ui: {
     SkinPicker: SkinCards,
     PetPreview: PetCanvas,
     PetCanvas,
     ActionViewer,
-    PixelEditor: void 0,
   },
 };

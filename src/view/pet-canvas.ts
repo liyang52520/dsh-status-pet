@@ -18,7 +18,7 @@
 //                clickable wrappers.
 
 import { React, h, Tooltip } from '../platform/deps.ts';
-import { AVATAR_FACE } from '../skin/geometry.ts';
+import { AVATAR_FACE, FACES } from '../skin/geometry.ts';
 import type { FaceName } from '../skin/geometry.ts';
 import type { ResolvedSkin } from '../skin/resolve.ts';
 import { activeSkin, bestSkin, skinFor, actionSkinFor, onSkinChange } from '../skin/session.ts';
@@ -37,9 +37,9 @@ export type SkinSource =
   | { kind: 'skin'; name: string; face?: FaceName }
   | { kind: 'action'; skin: string; actionId: string; face?: FaceName };
 
-/** The live read for one source.  Exported so a test can drive the very mapping
- *  the component uses — a source whose kind and fields disagree resolves to
- *  `null`, which is a blank canvas with no error to show for it. */
+/** The live read for one source.  A source whose kind and fields disagree resolves
+ *  to `null`, which is a blank canvas with no error to show for it — so the mapping
+ *  is exported to be exercised directly. */
 export function resolveSource(source: SkinSource): () => ResolvedSkin | null {
   switch (source.kind) {
     case 'active':
@@ -62,8 +62,7 @@ export function resolveSource(source: SkinSource): () => ResolvedSkin | null {
  *  This used to be `JSON.stringify(source)`, which the Workshop paid 200+ times
  *  per keystroke — every row's canvas rebuilt the same string.  The key only has
  *  to distinguish sources that behave differently, and the fields below are
- *  exactly the ones `resolveSource` reads.  Exported so a test can pin that it
- *  agrees with the mapping it keys. */
+ *  exactly the ones `resolveSource` reads. */
 export function sourceKeyOf(source: SkinSource): string {
   switch (source.kind) {
     case 'action':
@@ -128,28 +127,27 @@ export function PetCanvas(props: PetCanvasProps) {
   // Same reason: the source object is written inline at every call site, so its
   // IDENTITY changes on every render while its CONTENT does not.  Re-bind on the
   // serialized content, and read the live object from a ref.
+  //
+  // The refs are written in a LAYOUT effect (before the surface effect below
+  // runs), not during render: a discarded concurrent render must not leave an
+  // uncommitted source behind for the surface to read.
   const sourceRef = React.useRef(source);
-  sourceRef.current = source;
-  const sourceKey = sourceKeyOf(source);
-
-  // The owner's roll callback, read through a ref so it never re-binds either.
   const onActionRef = React.useRef(props.onAction);
-  onActionRef.current = props.onAction;
+  const useIsoLayoutEffect = React.useLayoutEffect || React.useEffect;
+  useIsoLayoutEffect(() => {
+    sourceRef.current = source;
+    onActionRef.current = props.onAction;
+  });
+  const sourceKey = sourceKeyOf(source);
 
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   React.useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    // Re-bind on every source change, because the skin closure is captured in
-    // resolveSource at the call site, not here.  The source object changes, but
-    // the *function* inside it must be re-evaluated.
+    // Re-bind whenever the source CONTENT changes (that is what `sourceKey` is):
+    // the closure built by `resolveSource` reads the session's live value, and the
+    // surface calls it once per change, not once per frame.
     const skinFn = resolveSource(sourceRef.current);
-    // Attach when the skin registry changes, the surface needs a re-tick;
-    // the loop already resolves per-frame, so a fresh closure is not needed
-    // as long as the function calls the session's live read.  But skinFor
-    // calls resolveFor(readStored(),...), which IS per-frame.  And bestSkin
-    // calls readStored() per tick.  So the closure is stable — no source
-    // key needed here.
     const roll = props.lead ? 'lead' as const : props.follow ? 'follow' as const : 'free' as const;
     return startSurface(canvas, {
       skin: skinFn,
@@ -160,19 +158,21 @@ export function PetCanvas(props: PetCanvasProps) {
       roll,
       onAction: (id) => { const fn = onActionRef.current; if (fn) fn(id); },
     });
-  }, [sourceKey, scaleFor, zoom, props.follow, props.lead]);
+    // `interactive` swaps the element between a bare <canvas> and a <button><canvas>:
+    // the canvas node changes, so the surface must re-bind or it keeps ticking a
+    // detached node while the visible one stays blank.
+  }, [sourceKey, scaleFor, zoom, props.follow, props.lead, interactive]);
 
   function onClick() { react('petted'); }
 
-  // The initial canvas size: the smallest the surface may be, in case the skin
-  // is not yet resolved.
-  const face = (source as any).face || AVATAR_FACE;
-  // For initial sizing before the first frame, choose a reasonable face:
-  // show the body for best, avatar for everything else.  The surface resizes
-  // properly on the first tick.
-  const initFace: FaceName = source.kind === 'best' ? 'body' : face;
+  // The initial canvas size, before the surface has resolved anything.  It must be
+  // the SAME geometry the surface will pick (FACES), or React's width/height
+  // attributes and `prepare()` disagree and the first frames get cleared.
+  const initFace: FaceName = source.kind === 'best'
+    ? 'body'
+    : (source.kind === 'skin' || source.kind === 'action') && source.face ? source.face : AVATAR_FACE;
   const initScale = props.scale ?? (initFace === AVATAR_FACE ? 4 : 1);
-  const spec = { avatar: { size: 32, canvasW: 40, canvasH: 40 }, body: { size: 128, canvasW: 160, canvasH: 160 } }[initFace] || { size: 32, canvasW: 40, canvasH: 40 };
+  const spec = FACES[initFace];
   const pw = spec.canvasW * initScale;
   const ph = spec.canvasH * initScale;
   const attr = canvasAttrs(pw, ph, pw * zoom, ph * zoom);

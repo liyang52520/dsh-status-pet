@@ -20,7 +20,7 @@ import type { Artwork } from '../../skin/model.ts';
 import type { StateName } from '../../behavior/vocabulary.ts';
 import { assign, setSelection, usedBy } from '../../skin/library.ts';
 import { documentOf } from '../../skin/documents.ts';
-import { saveAssignments } from '../../skin/session.ts';
+import { saveAssignments, onSkinChange } from '../../skin/session.ts';
 import { translatorOrFallback } from '../../labels/index.ts';
 import type { Translator } from '../../labels/index.ts';
 import { PetCanvas } from '../pet-canvas.ts';
@@ -39,9 +39,9 @@ const EMPTY_ARTWORK: Artwork = { palette: ['transparent'], actions: [], states: 
  *   * a row hovered — THAT action pinned alone (`kind: 'action'`), which is the
  *     only way to preview an action no state plays yet.
  *
- *  Exported because it is the contract a regression test pins: a source that
- *  names a field its kind does not carry resolves to `null`, and a null skin is
- *  a permanently blank canvas. */
+ *  A source that names a field its kind does not carry resolves to `null`, and a
+ *  null skin is a permanently blank canvas — so this mapping is the whole contract
+ *  between the hover read-out and the picture above it. */
 export function headerSource(skin: string, hover: string | null): SkinSource {
   return hover
     ? { kind: 'action', skin, actionId: hover, face: BODY_FACE }
@@ -63,6 +63,14 @@ export function StateAssignments(props: {
   const [query, setQuery] = React.useState('');
   const [hover, setHover] = React.useState<string | null>(null);
   const [clearing, setClearing] = React.useState(false);
+
+  // The artwork chunk can land AFTER this panel mounted (`documentOf` returns null
+  // until then), and a write from another tab or another surface moves the document
+  // without moving the skin name.  Both arrive as the one store-change event, so
+  // re-reading on it is exact — without this the list stays empty for the session.
+  React.useEffect(() => onSkinChange(() => {
+    setArt(documentOf(skin) || EMPTY_ARTWORK);
+  }), [skin]);
 
   const selection = (art.states && art.states[state as StateName]) || [];
   const q = query.trim().toLowerCase();

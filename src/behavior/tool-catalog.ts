@@ -16,7 +16,8 @@ export type ToolCategory = 'shell' | 'read' | 'search' | 'write' | 'web' | 'agen
 export const TOOL_CATEGORIES: readonly ToolCategory[] =
   ['shell', 'read', 'search', 'write', 'web', 'agent', 'plan', 'deliver', 'tool'];
 
-/** One tool belongs to exactly ONE category — test/tool-catalog.test.ts 强制。 */
+/** One tool belongs to exactly ONE category: the table is a `Record`, so a duplicate key
+ *  is not even expressible.  test/facts.test.ts covers the fallback behaviour. */
 export const TOOL_CATEGORY: Record<string, ToolCategory> = {
   // 跑命令：真实机器、真实副作用，最需要"陪你一起等"
   bash: 'shell',

@@ -10,19 +10,27 @@ const tickers = new Set<TickFn>();
 let order: TickFn[] = [];
 let orderStale = false;
 let raf = 0;
+/** True while a frame callback is on the stack.  `raf` is 0 inside that window
+ *  (the id it refers to has already fired), so "raf === 0" alone would let a
+ *  ticker registered from inside a callback start a SECOND loop — two pending
+ *  ids, only one of which `raf` can cancel. */
+let inFrame = false;
 let watchingVisibility = false;
 
 function frame(now: number): void {
   raf = 0;
+  inFrame = true;
   if (orderStale) {
     order = Array.from(tickers);
     orderStale = false;
   }
   for (let i = 0; i < order.length; i++) order[i](now);
+  inFrame = false;
   if (tickers.size) raf = requestAnimationFrame(frame);
 }
 
 function ensureRunning(): void {
+  if (inFrame) return;
   if (!raf && tickers.size && (typeof document === 'undefined' || !document.hidden)) {
     raf = requestAnimationFrame(frame);
   }

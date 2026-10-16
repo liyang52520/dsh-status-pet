@@ -25,11 +25,14 @@ export function FrameCanvas(props: {
   React.useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d');
+    // A canvas without a 2D context degrades to a blank still instead of throwing
+    // out of the effect.
+    if (!ctx) return;
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawSprite(ctx, spriteFor(props.drawing), props.palette, 1, 0, 0);
-  }, [props.drawing, props.palette]);
+  }, [props.drawing, props.palette, size]);
   const css = typeof props.css === 'number' ? props.css + 'px' : props.css;
   return h('canvas', {
     ref: canvasRef,
